@@ -1,1 +1,59 @@
 description.txt
+# ---- tests ----
+**/tests/**
+**/test/**
+
+# ---- compiled objects & libs ----
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+
+# ---- executables & generic build outputs ----
+*.exe
+*.out
+
+# ---- project binaries (build products) ----
+blur/blur
+blur/blur_par
+blur/blur_par_gprof
+pearson/pearson
+pearson/pearson_par
+
+# ---- whole benchmark run folders (any depth) ----
+**/bench_*/        # ignore every bench_* directory anywhere
+
+# ---- logs & profiler byproducts ----
+**/*.perf
+**/*.time
+gmon.out
+callgrind.*.out
+callgrind.*.txt
+
+# ---- plots & CSVs produced during runs ----
+**/bench_*/**/*.csv
+**/bench_*/**/*.png
+
+# ---- generated outputs (but keep golds) ----
+# BLUR: keep golds data_o/blur_<image>.ppm
+blur/data_o/**
+!blur/data_o/blur_*.ppm
+
+# PEARSON: keep golds data_o/<size>_seq.data
+pearson/data_o/**
+!pearson/data_o/*_seq.data
+
+# ---- Python cache ----
+__pycache__/
+*.pyc
+
+# ---- OS/editor cruft ----
+.DS_Store
+Thumbs.db
+*.swp
+
+# ignore all generated outputs under any data_o directory
+**/data_o/**
+/pearson/verify
