@@ -4,6 +4,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import math
+from matplotlib.ticker import MultipleLocator
 
 # ---------------- helpers ----------------
 def find_latest_bench_folder():
@@ -115,28 +117,44 @@ def read_hotspots_csv(p: Path) -> pd.DataFrame:
         df = df.sort_values(["Ir_percent","Ir"], ascending=[False, False]).reset_index(drop=True)
     return df
 
-# --- CPU util axis helpers ---
-def _cpu_bounds(df, col):
+# ---------------- dynamic Y-axis helpers (like blur) ----------------
+def _nice_step(span: float, target: int = 6) -> float:
+    """Choose a 'nice' major tick step so we get ~target ticks."""
+    if span <= 0:
+        span = 1e-9
+    base = 10 ** math.floor(math.log10(span / target))
+    for m in (1, 2, 2.5, 5, 10):
+        step = base * m
+        if span / step <= target:
+            return step
+    return base * 10
+
+def _bounds_and_step(df: pd.DataFrame, col: str, *, floor0=False, pad_frac=0.05, target=6):
+    """Generic Y-axis bounds + step from a dataframe column."""
+    if col not in df.columns:
+        return None
     vals = pd.to_numeric(df[col], errors="coerce").dropna().values
     if vals.size == 0:
         return None
     lo = float(np.min(vals))
     hi = float(np.max(vals))
-    pad = 2.5  # half a tick of breathing room
-    lo = np.floor((lo - pad) / 5.0) * 5.0
-    hi = np.ceil((hi + pad) / 5.0) * 5.0
-    if lo == hi:  # degenerate, widen a bit
-        lo -= 5.0
-        hi += 5.0
-    return lo, hi
+    span = max(hi - lo, 1e-9)
+    pad = pad_frac * span
+    lo -= pad
+    hi += pad
+    if floor0:
+        lo = max(0.0, lo)
+    step = _nice_step(hi - lo, target=target)
+    lo_tick = step * math.floor(lo / step)
+    hi_tick = step * math.ceil(hi / step)
+    return lo_tick, hi_tick, step
 
-def _apply_cpu_axis(ax, bounds):
+def _apply_y_axis(ax, bounds):
     if not bounds:
         return
-    lo, hi = bounds
+    lo, hi, step = bounds
     ax.set_ylim(lo, hi)
-    ax.set_yticks(np.arange(lo, hi + 1e-9, 5.0))
-
+    ax.yaxis.set_major_locator(MultipleLocator(step))
 
 # --- hotspot table (2 columns: function, Ir_percent) ---
 def draw_hotspot_table(ax, df: pd.DataFrame, title: str, topn=12):
@@ -187,13 +205,18 @@ def plot_seq_dashboard(seq_df: pd.DataFrame, bench: Path, out_png: Path):
     df = df.sort_values(["size","threads"])
     sizes = _ensure_size_order(df)
 
+    # dynamic bounds (NEW) — same logic as blur
+    elapsed_bounds = _bounds_and_step(df, "elapsed_mean", floor0=True)
+    rss_bounds     = _bounds_and_step(df, "rss_kb_mean", floor0=True)
+    cpu_bounds     = _bounds_and_step(df, cpu_col, floor0=True) if cpu_col else None
+
     fig = plt.figure(figsize=(12, 8))
     ax1 = fig.add_subplot(2,2,1)  # elapsed
     ax2 = fig.add_subplot(2,2,2)  # rss
     ax3 = fig.add_subplot(2,2,3)  # cpu util
     ax4 = fig.add_subplot(2,2,4)  # hotspot table
 
-    def plot_row(ax, col, ylabel):
+    def plot_row(ax, col, ylabel, ybounds=None):
         x_min, x_max = 0.8, 64.0
         for sz in sizes:
             sub = df[(df["size"] == sz)]
@@ -213,18 +236,17 @@ def plot_seq_dashboard(seq_df: pd.DataFrame, bench: Path, out_png: Path):
         ax.grid(True, which="both", alpha=0.3)
         ax.legend(ncol=2, fontsize=9, title="size")
         ax.set_title(ylabel, fontsize=11)
+        if ybounds:
+            _apply_y_axis(ax, ybounds)
 
-    cpu_bounds = _cpu_bounds(df, cpu_col) if cpu_col else None
-
-    plot_row(ax1, "elapsed_mean", "Elapsed (s)")
+    plot_row(ax1, "elapsed_mean", "Elapsed (s)", elapsed_bounds)
     if "rss_kb_mean" in df.columns and df["rss_kb_mean"].notna().any():
-        plot_row(ax2, "rss_kb_mean", "Max RSS (kB)")
+        plot_row(ax2, "rss_kb_mean", "Max RSS (kB)", rss_bounds)
     else:
         ax2.axis("off"); ax2.text(0.5, 0.5, "No RSS", ha="center", va="center", fontsize=11)
 
     if cpu_col and df[cpu_col].notna().any():
-        plot_row(ax3, cpu_col, "CPU util (%)")
-        _apply_cpu_axis(ax3, cpu_bounds)
+        plot_row(ax3, cpu_col, "CPU util (%)", cpu_bounds)
     else:
         ax3.axis("off"); ax3.text(0.5, 0.5, "No CPU util", ha="center", va="center", fontsize=11)
 
@@ -259,13 +281,18 @@ def plot_par_dashboard(par_df: pd.DataFrame, bench: Path, out_png: Path):
     df = df.sort_values(["size","threads"])
     sizes = _ensure_size_order(df)
 
+    # dynamic bounds (NEW)
+    elapsed_bounds = _bounds_and_step(df, "elapsed_mean", floor0=True)
+    rss_bounds     = _bounds_and_step(df, "rss_kb_mean", floor0=True)
+    cpu_bounds     = _bounds_and_step(df, cpu_col, floor0=True) if cpu_col else None
+
     fig = plt.figure(figsize=(12, 8))
     ax1 = fig.add_subplot(2,2,1)
     ax2 = fig.add_subplot(2,2,2)
     ax3 = fig.add_subplot(2,2,3)
     ax4 = fig.add_subplot(2,2,4)  # hotspot table
 
-    def plot_metric(ax, col, ylabel):
+    def plot_metric(ax, col, ylabel, ybounds=None):
         for sz in sizes:
             sub = df[df["size"] == sz]
             if sub.empty or col not in sub.columns:
@@ -277,18 +304,17 @@ def plot_par_dashboard(par_df: pd.DataFrame, bench: Path, out_png: Path):
         ax.grid(True, which="both", alpha=0.3)
         ax.legend(ncol=2, fontsize=9, title="size")
         ax.set_title(ylabel, fontsize=11)
+        if ybounds:
+            _apply_y_axis(ax, ybounds)
 
-    cpu_bounds = _cpu_bounds(df, cpu_col) if cpu_col else None
-
-    plot_metric(ax1, "elapsed_mean", "Elapsed (s)")
+    plot_metric(ax1, "elapsed_mean", "Elapsed (s)", elapsed_bounds)
     if "rss_kb_mean" in df.columns and df["rss_kb_mean"].notna().any():
-        plot_metric(ax2, "rss_kb_mean", "Max RSS (kB)")
+        plot_metric(ax2, "rss_kb_mean", "Max RSS (kB)", rss_bounds)
     else:
         ax2.axis("off"); ax2.text(0.5, 0.5, "No RSS", ha="center", va="center", fontsize=11)
 
     if cpu_col and df[cpu_col].notna().any():
-        plot_metric(ax3, cpu_col, "CPU util (%)")
-        _apply_cpu_axis(ax3, cpu_bounds)
+        plot_metric(ax3, cpu_col, "CPU util (%)", cpu_bounds)
     else:
         ax3.axis("off"); ax3.text(0.5, 0.5, "No CPU util", ha="center", va="center", fontsize=11)
 
