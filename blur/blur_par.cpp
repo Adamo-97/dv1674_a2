@@ -16,14 +16,15 @@ int main(int argc, char const* argv[])
     const unsigned radius = static_cast<unsigned>(std::stoul(argv[1]));
     const char*     in    = argv[2];
     const char*     out   = argv[3];
-    /* int threads = std::atoi(argv[4]); */  // parsed but not used (yet)
+    int threads          = std::atoi(argv[4]);
+    if (threads < 1) threads = 1;
 
     PPM::Reader reader{};
     PPM::Writer writer{};
 
     auto m = reader(in);
 
-    auto blurred = Filter::blur(m, static_cast<int>(radius));
+    auto blurred = Filter::blur_parallel(m, static_cast<int>(radius), threads);
 
     writer(blurred, out);
     return 0;

@@ -20,6 +20,7 @@ namespace Filter
     }
 
     Matrix blur(Matrix m, const int radius);
+    Matrix blur_parallel(Matrix m, int radius, int num_threads);
 
 }
 
