@@ -1,6 +1,6 @@
 # Title: Optimizing and Parallelizing Pearson & Blur
 
-**Authors:** Adam Abdullah - Daniel , Group 1  
+**Authors:** Adam Abdullah - Daniel Mohagheghifard, Group 1  
 
 ## Abstract
 _What we optimized and parallelized (Pearson & Blur), the WSL2 environment, headline speedups vs. baseline (see §6), and that outputs were verified for correctness._
@@ -39,8 +39,8 @@ This report covers baseline measurements for the sequential versions of **Pearso
 | 512  | 0.4700 | 17,779.2 | 508.0380 | 108.10 |
 | 1024 | 3.3275 | 24,073.0 | 3,627.5275 | 109.02 |
 
-<!-- Blur baseline (sequential) -->
-![Figure B1 — Blur baseline (seq)](./assets/blur/seq_dashboard.png)
+<!-- Pearson baseline (sequential) -->
+![Figure B1 — Pearson baseline (seq)](./assets/pearson/seq_dashboard.png)
 
 **Notes:** Cost grows quadratically with number of datasets (pair count). CPU utilization hovers ~100% on a single thread due to compute-bound inner products and memory locality of contiguous vector storage.
 
@@ -49,12 +49,19 @@ This report covers baseline measurements for the sequential versions of **Pearso
 ### 3.2 Blur (sequential)
 **Algorithm:** separable two-pass blur (horizontal into scratch, then vertical into destination) with radius **15**.
 
-**Results:** _Insert the dashboard for the four images (elapsed, RSS, CPU util.)._
+**Results (aggregated over 5 reps):**
 
-_Figure B1 — Blur baseline (sequential dashboard):_  
-`blur/bench_<STAMP>/seq_dashboard.png`
+| image | elapsed_mean (s) | Max RSS (kB) | task_clock_ms | CPUs util. (%) |
+| :---: | ---------------: | -----------: | ------------: | -------------: |
+|  im1  |           0.2300 |     17,792.0 |      246.5967 |         107.22 |
+|  im2  |           0.4800 |     24,804.0 |      520.2400 |         108.39 |
+|  im3  |           0.8700 |     36,646.0 |      943.0050 |         108.39 |
+|  im4  |           4.3160 |    135,342.4 |    4,702.3820 |         108.95 |
 
-**Notes:** Two-pass structure improves cache locality vs. naïve 2D window; memory bandwidth and image dimensions dominate runtime. (Detailed numbers to be inserted after running `bench_blur.sh`.)
+<!-- Blur baseline (sequential) -->
+![Figure B1 — Blur baseline (seq)](./assets/blur/seq_dashboard.png)
+
+**Notes:** Two-pass structure improves cache locality vs. naïve 2D window; memory bandwidth and image dimensions dominate runtime.
 
 ---
 
@@ -74,116 +81,133 @@ _Figure B1 — Blur baseline (sequential dashboard):_
 ## 5. Parallelization with pthreads
 
 ### 5.1 Pearson — design & results
+
 **Partitioning:** shard the outer loop over dataset index `i` across threads; pre-size output to `n(n−1)/2`; use deterministic `pair_index(n,i,j)` so each `(i,j)` writes a unique slot. No locks; one join at the end. **Correctness/Order** identical to sequential.
 
-**Scalability & speedup (vs. 1-thread time for same size):**
+**Scalability & speedup (vs. 1-thread time for same size) _Avg of 5 runs:**
 
 **size = 128** (T₁ = 0.0200 s)
-| threads | elapsed_mean (s) | speedup |
-|--------:|------------------:|--------:|
-| 1 | 0.0200 | 1.00 |
-| 2 | 0.0140 | 1.43 |
-| 4 | 0.0100 | 2.00 |
-| 8 | 0.0100 | 2.00 |
-| 16 | 0.0100 | 2.00 |
-| 32 | 0.0100 | 2.00 |
+
+| threads | elapsed_mean (s) | ±95% CI | speedup | efficiency (%) | task_clock_ms | CPUs util. (%) | Max RSS (kB) |
+| ------: | ---------------: | ------: | ------: | -------------: | ------------: | -------------: | -----------: |
+|       1 |            0.020 |   0.000 |    1.00 |          100.0 |        14.398 |          71.99 |     17,779.2 |
+|       2 |            0.014 |   0.004 |    1.43 |           71.4 |        14.630 |         116.49 |     17,894.4 |
+|       4 |            0.010 |   0.000 |    2.00 |           50.0 |        14.668 |         146.68 |     17,856.0 |
+|       8 |            0.010 |   0.000 |    2.00 |           25.0 |        15.002 |         150.02 |     17,856.0 |
+|      16 |            0.010 |   0.000 |    2.00 |           12.5 |        16.954 |         169.54 |     17,817.6 |
+|      32 |            0.010 |   0.000 |    2.00 |            6.2 |        16.392 |         163.92 |     17,817.6 |
 
 **size = 256** (T₁ = 0.0800 s)
-| threads | elapsed_mean (s) | speedup |
-|--------:|------------------:|--------:|
-| 1 | 0.080 | 1.00 |
-| 2 | 0.070 | 1.14 |
-| 4 | 0.050 | 1.60 |
-| 8 | 0.040 | 2.00 |
-| 16 | 0.040 | 2.00 |
-| 32 | 0.040 | 2.00 |
 
-**size = 512** (T₁ ≈ 0.4700 s)
-| threads | elapsed_mean (s) | speedup |
-|--------:|------------------:|--------:|
-| 1 | 0.484 | 0.97 |
-| 2 | 0.390 | 1.21 |
-| 4 | 0.274 | 1.72 |
-| 8 | 0.200 | 2.35 |
-| 16 | 0.170 | 2.76 |
-| 32 | 0.154 | **3.05** |
+| threads | elapsed_mean (s) | ±95% CI | speedup | efficiency (%) | task_clock_ms | CPUs util. (%) | Max RSS (kB) |
+| ------: | ---------------: | ------: | ------: | -------------: | ------------: | -------------: | -----------: |
+|       1 |            0.080 |   0.000 |    1.00 |          100.0 |        83.682 |         104.60 |     17,856.0 |
+|       2 |            0.070 |   0.000 |    1.14 |           57.1 |        84.796 |         121.14 |     17,779.2 |
+|       4 |            0.050 |   0.000 |    1.60 |           40.0 |        83.514 |         167.03 |     17,894.4 |
+|       8 |            0.040 |   0.000 |    2.00 |           25.0 |        85.020 |         212.55 |     17,817.6 |
+|      16 |            0.040 |   0.000 |    2.00 |           12.5 |        98.224 |         245.56 |     17,817.6 |
+|      32 |            0.040 |   0.000 |    2.00 |            6.2 |       110.580 |         276.45 |     17,760.0 |
 
-**size = 1024** (T₁ ≈ 3.3275 s)
-| threads | elapsed_mean (s) | speedup |
-|--------:|------------------:|--------:|
-| 1 | 3.365 | 0.99 |
-| 2 | 2.648 | 1.26 |
-| 4 | 1.730 | 1.92 |
-| 8 | 1.150 | 2.89 |
-| 16 | 0.855 | 3.89 |
-| 32 | 0.738 | **4.51** |
+**size = 512** (T₁ = 0.4700 s)
 
-<!-- Pearson baseline (sequential) -->
-![Figure P1 — Pearson baseline (seq)](./assets/pearson//seq_dashboard.png)
+| threads | elapsed_mean (s) | ±95% CI | speedup | efficiency (%) | task_clock_ms | CPUs util. (%) | Max RSS (kB) |
+| ------: | ---------------: | ------: | ------: | -------------: | ------------: | -------------: | -----------: |
+|       1 |            0.484 |   0.004 |    0.97 |           97.1 |       524.110 |         108.29 |     17,740.8 |
+|       2 |            0.390 |   0.000 |    1.21 |           60.3 |       521.477 |         133.71 |     17,856.0 |
+|       4 |            0.274 |   0.004 |    1.72 |           42.9 |       524.242 |         191.39 |     17,779.2 |
+|       8 |            0.200 |   0.000 |    2.35 |           29.4 |       545.752 |         272.88 |     17,808.0 |
+|      16 |            0.170 |   0.000 |    2.76 |           17.3 |       654.418 |         384.95 |     17,779.2 |
+|      32 |            0.154 |   0.004 |    3.05 |            9.5 |       783.162 |         508.80 |     17,817.6 |
+
+**size = 1024** (T₁ = 3.3275 s)
+
+| threads | elapsed_mean (s) | ±95% CI | speedup | efficiency (%) | task_clock_ms | CPUs util. (%) | Max RSS (kB) |
+| ------: | ---------------: | ------: | ------: | -------------: | ------------: | -------------: | -----------: |
+|       1 |            3.365 |   0.011 |    0.99 |           98.9 |      3668.517 |         109.02 |     24,096.0 |
+|       2 |            2.648 |   0.009 |    1.26 |           62.8 |      3701.418 |         139.78 |     23,961.6 |
+|       4 |            1.730 |   0.000 |    1.92 |           48.1 |      3692.432 |         213.44 |     23,952.0 |
+|       8 |            1.150 |   0.000 |    2.89 |           36.2 |      3890.397 |         338.29 |     24,000.0 |
+|      16 |            0.855 |   0.011 |    3.89 |           24.3 |      4707.970 |         550.75 |     24,000.0 |
+|      32 |            0.738 |   0.007 |    4.51 |           14.1 |      5898.746 |         799.21 |     24,192.0 |
 
 <!-- Pearson parallel -->
+
 ![Figure P2 — Pearson parallel (par)](./assets/pearson//par_dashboard.png)
 
-
-**Discussion:** Stronger scaling emerges for larger sizes where work dominates overhead. Small sizes (128/256) saturate around ~2× due to overheads and limited parallel work per thread.
+**Conclusion.** Pearson scales with problem size: at **n=128/256**, speedup saturates near **2×** even as threads rise, and efficiency drops below 25%, indicating overhead dominates short runs. At **n=512/1024**, scaling improves (best **3.05×** and **4.51×** at 32 threads), but efficiency still declines (to **9.5%** and **14.1%**) as synchronization and scheduling overheads grow. **CPU utilization** climbs toward ~800% at 32 threads (≈8 effective cores busy), while **Max RSS** stays essentially flat—parallelism doesn’t increase memory footprint. **task_clock_ms** rises with threads (e.g., +49% at n=512, +61% at n=1024 vs. 1-thread), meaning we “spend” more total CPU time to cut wall-time. For throughput-per-core, the sweet spot is around **8–16 threads** on larger sizes; pushing to 32 threads still reduces latency but with diminishing returns.
 
 ---
 
 ### 5.2 Blur — design & results
+
 **Partitioning:** split **rows** `[y0, y1)` per thread; join (barrier) between the horizontal and vertical passes; traversal order (x→y) identical to sequential. **Correctness** matches sequential output (verified).
 
 **Scalability & speedup:** (aggregated over 5 reps; `speedup = T1 / Tt`)
 
-_im1 (radius=15)_
-| threads | elapsed_mean (s) | speedup |
-|-------:|------------------:|--------:|
-| 1 | 0.2260 | 1.0177 |
-| 2 | 0.1300 | 1.7692 |
-| 4 | 0.0840 | 2.7381 |
-| 8 | 0.0700 | 3.2857 |
-| 16 | 0.0660 | 3.4848 |
-| 32 | 0.0600 | **3.8333** |
+***im1** (radius=15)*
 
-_im2 (radius=15)_
-| threads | elapsed_mean (s) | speedup |
-|-------:|------------------:|--------:|
-| 1 | 0.4800 | 1.0000 |
-| 2 | 0.2800 | 1.7143 |
-| 4 | 0.1900 | 2.5263 |
-| 8 | 0.1500 | 3.2000 |
-| 16 | 0.1425 | 3.3684 |
-| 32 | 0.1300 | **3.6923** |
+| threads | elapsed_mean (s) | ±95% CI | speedup | efficiency (%) | task_clock_ms | CPUs util. (%) | Max RSS (kB) |
+| ------: | ---------------: | ------: | ------: | -------------: | ------------: | -------------: | -----------: |
+|       1 |           0.2260 |  0.0043 |    1.02 |          101.8 |       242.516 |          107.3 |     17,779.2 |
+|       2 |           0.1300 |  0.0000 |    1.77 |           88.5 |       235.056 |          180.8 |     17,740.8 |
+|       4 |           0.0840 |  0.0043 |    2.74 |           68.5 |       235.738 |          281.5 |     17,856.0 |
+|       8 |           0.0700 |  0.0000 |    3.29 |           41.1 |       259.852 |          371.2 |     17,856.0 |
+|      16 |           0.0660 |  0.0043 |    3.48 |           21.8 |       303.170 |          461.8 |     17,817.6 |
+|      32 |           0.0600 |  0.0000 |    3.83 |           12.0 |       368.043 |          613.4 |     17,760.0 |
 
-_im3 (radius=15)_
-| threads | elapsed_mean (s) | speedup |
-|-------:|------------------:|--------:|
-| 1 | 0.8700 | 1.0000 |
-| 2 | 0.5200 | 1.6731 |
-| 4 | 0.3525 | 2.4681 |
-| 8 | 0.2900 | 3.0000 |
-| 16 | 0.2600 | 3.3462 |
-| 32 | 0.2460 | **3.5366** |
+***im2** (radius=15)*
 
-_im4 (radius=15)_
-| threads | elapsed_mean (s) | speedup |
-|-------:|------------------:|--------:|
-| 1 | 4.2900 | 1.0061 |
-| 2 | 2.6325 | 1.6395 |
-| 4 | 1.8260 | 2.3636 |
-| 8 | 1.4925 | 2.8918 |
-| 16 | 1.3525 | 3.1911 |
-| 32 | 1.3025 | **3.3136** |
+| threads | elapsed_mean (s) | ±95% CI | speedup | efficiency (%) | task_clock_ms | CPUs util. (%) | Max RSS (kB) |
+| ------: | ---------------: | ------: | ------: | -------------: | ------------: | -------------: | -----------: |
+|       1 |           0.4800 |  0.0000 |    1.00 |          100.0 |       518.907 |          108.1 |     24,614.0 |
+|       2 |           0.2800 |  0.0000 |    1.71 |           85.7 |       502.385 |          179.4 |     24,470.0 |
+|       4 |           0.1900 |  0.0000 |    2.53 |           63.2 |       514.428 |          270.8 |     24,180.0 |
+|       8 |           0.1500 |  0.0000 |    3.20 |           40.0 |       553.757 |          369.2 |     23,958.7 |
+|      16 |           0.1425 |  0.0042 |    3.37 |           21.1 |       677.320 |          475.3 |     24,662.0 |
+|      32 |           0.1300 |  0.0000 |    3.69 |           11.5 |       775.085 |          596.2 |     23,604.0 |
 
+***im3** (radius=15)*
+
+| threads | elapsed_mean (s) | ±95% CI | speedup | efficiency (%) | task_clock_ms | CPUs util. (%) | Max RSS (kB) |
+| ------: | ---------------: | ------: | ------: | -------------: | ------------: | -------------: | -----------: |
+|       1 |           0.8700 |  0.0000 |    1.00 |          100.0 |       946.483 |          108.8 |     36,453.0 |
+|       2 |           0.5200 |  0.0000 |    1.67 |           83.7 |       939.862 |          180.7 |     36,348.0 |
+|       4 |           0.3525 |  0.0081 |    2.47 |           61.7 |       952.418 |          270.2 |     35,924.0 |
+|       8 |           0.2900 |  0.0000 |    3.00 |           37.5 |     1,068.957 |          368.6 |     35,605.3 |
+|      16 |           0.2600 |  0.0000 |    3.35 |           20.9 |     1,299.428 |          499.8 |     35,156.0 |
+|      32 |           0.2460 |  0.0043 |    3.54 |           11.1 |     1,497.474 |          609.0 |     34,004.0 |
+
+***im4** (radius=15)*
+
+| threads | elapsed_mean (s) | ±95% CI | speedup | efficiency (%) | task_clock_ms | CPUs util. (%) | Max RSS (kB) |
+| ------: | ---------------: | ------: | ------: | -------------: | ------------: | -------------: | -----------: |
+|       1 |           4.2900 |  0.0069 |    1.01 |          100.6 |     4,677.810 |          109.0 |    135,285.0 |
+|       2 |           2.6325 |  0.0107 |    1.64 |           82.0 |     4,639.675 |          176.2 |    135,142.0 |
+|       4 |           1.8260 |  0.0089 |    2.36 |           59.1 |     4,666.154 |          255.5 |    135,036.0 |
+|       8 |           1.4925 |  0.0161 |    2.89 |           36.1 |     5,116.310 |          342.8 |    134,995.0 |
+|      16 |           1.3525 |  0.0042 |    3.19 |           19.9 |     6,576.670 |          486.2 |    133,461.0 |
+|      32 |           1.3025 |  0.0042 |    3.31 |           10.4 |     7,634.258 |          586.1 |    133,702.0 |
 
 <!-- Blur parallel -->
+
 ![Figure B2 — Blur parallel (par)](./assets/blur/par_dashboard.png)
+
+**Conclusion.** Blur scales nicely up to **8–16 threads**, then flattens as memory bandwidth and the pass-to-pass barrier dominate. Peak speedups at 32 threads are **im1 3.83×**, **im2 3.69×**, **im3 3.54×**, **im4 3.31×**; the gain from 16→32 threads is modest (≈ **im1 +10%**, **im2 +9%**, **im3 +5.7%**, **im4 +3.8%**). CPU utilization reaches ~**613% / 596% / 609% / 586%** (im1–im4) at 32 threads—roughly 6–8 effective cores saturated—while **Max RSS** stays flat. **task_clock_ms** rises versus 1 thread (≈ **+52% / +49% / +58% / +63%** by 32 threads), showing extra total CPU work due to synchronization and memory stalls. On this box, the throughput sweet spot is **8–16 threads**; 32 threads still trims wall-time but with sharply diminishing efficiency.
 
 ---
 
 ## 6. Conclusion
-- **Sequential baselines:** established for Pearson and Blur (radius=15).  
-- **Parallel pthreads:** Pearson reached up to **~4.51×** at 32 threads on size **1024**; ~3.05× at size **512**. Small sizes saturate near 2×.  
-- **Next steps:** implement at least **two** sequential optimizations (e.g., weight reuse/hoisting, allocation elimination, cache-friendly traversal, I/O buffering, vectorization) and re-measure to demonstrate additional gains while preserving correctness.
+
+* **Baselines locked in.** Sequential Pearson and Blur (radius = 15) establish clean references; memory footprint follows input size, not thread count.
+* **Pearson scales with size.** Small cases (**128/256**) saturate ~**2×** despite more threads. Larger cases reach **3.05×** (n=512, 32 t) and **4.51×** (n=1024, 32 t). Efficiency falls as threads rise (e.g., **36.2% → 14.1%** from 8→32 t at n=1024).
+* **Blur is bandwidth-bound.** Row-sharded two-pass blur climbs well to **8–16 t** then flattens: best at 32 t is **3.83× / 3.69× / 3.54× / 3.31×** (im1→im4). Vertical (stride-Y) pass limits cache reuse and benefits least from extra threads.
+* **Cost of parallelism.** Total CPU time (**task_clock_ms**) rises with threads (≈**+49–63%** by 32 t across big runs), meaning we trade extra cycles for lower wall-time. **CPU util.** peaks near **~600–800%**, indicating ≈6–8 effective cores are the practical ceiling here.
+* **Practical sweet spot.** For throughput-per-core and stable efficiency, **8–16 threads** is the best trade-off for both workloads; 32 t still reduces latency but with sharply diminishing returns. **Max RSS** stays essentially flat across threads.
+* **Next steps (sequential first).**
+
+  1. **SIMD vectorization** (Pearson dot products; Blur separable kernels) + light unrolling.
+  2. **Cache/NUMA care**: Pearson pair-blocking to improve reuse; Blur **vertical tiling** (small row blocks) + first-touch allocation + core pinning. Re-measure with the same 5× protocol to quantify gains without changing correctness.
+
 
 ---
 
