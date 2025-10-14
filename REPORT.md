@@ -220,6 +220,37 @@ This report covers baseline measurements for the sequential versions of **Pearso
   ![Figure B4 — Speedup vs threads (O2 = O1 + row-major)](./blur/2_rowmajor/par_dashboard.png)
 
   **Takeaway.** Row-major traversal gives a small but measurable win: ~**5–8%** at 1-thread (bigger cache benefit), ~**≤5%** at higher threads (closer to bandwidth limits). Correctness unchanged.
+
+### 5.2 Pearson Optimizations
+
+- **5.2.1 Optimization #1 — Pre-normalize once; per-pair dot only**
+
+  **Rationale.** Match the sequential math exactly (mean → center → magnitude → normalize), but do it **once per vector**. Each pair then computes just a `dot()` of pre-normalized vectors. Same numbers, far less work per pair.
+
+  **Code touchpoints.** `analysis_opt.cpp`: precompute `Z[i] = (x_i−mean(x_i)) / ‖x_i−mean(x_i)‖` once; in `corr_worker`, replace per-pair Pearson with `Z[i].dot(Z[j])` (+ clamp).
+
+  **Impact — O1 vs baseline (your CSVs).**
+
+  | size | threads | Baseline (s) | **O1** (s) | Δ% (O1 vs base) |   Speedup |
+  | :--: | :-----: | -----------: | ---------: | --------------: | --------: |
+  |  128 |    1    |        0.020 |      0.010 |        **−50%** | **2.00×** |
+  |  128 |    8    |        0.010 |      0.010 |              0% |     1.00× |
+  |  128 |    32   |        0.010 |      0.010 |              0% |     1.00× |
+  |  256 |    1    |        0.080 |      0.040 |        **−50%** | **2.00×** |
+  |  256 |    8    |        0.040 |      0.030 |        **−25%** |     1.33× |
+  |  256 |    32   |        0.040 |      0.030 |        **−25%** |     1.33× |
+  |  512 |    1    |        0.484 |      0.150 |        **−69%** | **3.23×** |
+  |  512 |    8    |        0.200 |      0.120 |        **−40%** |     1.67× |
+  |  512 |    32   |        0.154 |      0.120 |        **−22%** |     1.28× |
+  | 1024 |    1    |        3.365 |      0.750 |      **−77.7%** | **4.49×** |
+  | 1024 |    8    |        1.150 |      0.510 |      **−55.7%** | **2.26×** |
+  | 1024 |    32   |        0.738 |      0.474 |      **−35.8%** | **1.56×** |
+
+  ![Figure P1 — Speedup vs threads (O1 = pre-normalize + dot)](./pearson/1_normdot/par_dashboard.png)
+
+  **Takeaway.** O1 preserves correctness and delivers **2–4.5×** at T1 and **~1.3–2.3×** at higher threads as sizes grow. For tiny sizes (128), per-thread overhead dominates beyond 4–8 threads, so the benefit flattens.
+
+
 ---
 
 ## 6. Conclusion
