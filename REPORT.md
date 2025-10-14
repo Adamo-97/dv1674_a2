@@ -40,7 +40,7 @@ This report covers baseline measurements for the sequential versions of **Pearso
 | 1024 | 3.3275 | 24,073.0 | 3,627.5275 | 109.02 |
 
 <!-- Pearson baseline (sequential) -->
-![Figure B1 — Pearson baseline (seq)](./assets/pearson/seq_dashboard.png)
+![Figure B1 — Pearson baseline (seq)](./pearson/baseline_bench_result/seq_dashboard.png)
 
 **Notes:** Cost grows quadratically with number of datasets (pair count). CPU utilization hovers ~100% on a single thread due to compute-bound inner products and memory locality of contiguous vector storage.
 
@@ -59,28 +59,16 @@ This report covers baseline measurements for the sequential versions of **Pearso
 |  im4  |           4.3160 |    135,342.4 |    4,702.3820 |         108.95 |
 
 <!-- Blur baseline (sequential) -->
-![Figure B1 — Blur baseline (seq)](./assets/blur/seq_dashboard.png)
+![Figure B1 — Blur baseline (seq)](./blur/baseline_bench_result/seq_dashboard.png)
 
 **Notes:** Two-pass structure improves cache locality vs. naïve 2D window; memory bandwidth and image dimensions dominate runtime.
 
 ---
 
-## 4. Optimization and Tuning (Sequential → Optimized)
-> **Requirement:** apply at least **two** optimizations; each must show a measurable improvement and preserve correctness.
 
-> **Status:** _To be completed after implementing and measuring two+ sequential optimizations for Pearson and/or Blur. For each optimization, document: rationale, code changes (files/functions), and before/after metrics (figures/tables)._
+## 4. Parallelization with pthreads
 
-- **4.1 Optimization #1 — _Name_**  
-  Rationale → Change → Impact (before/after figure & table).
-
-- **4.2 Optimization #2 — _Name_**  
-  Rationale → Change → Impact (before/after figure & table).
-
----
-
-## 5. Parallelization with pthreads
-
-### 5.1 Pearson — design & results
+### 4.1 Pearson — design & results
 
 **Partitioning:** shard the outer loop over dataset index `i` across threads; pre-size output to `n(n−1)/2`; use deterministic `pair_index(n,i,j)` so each `(i,j)` writes a unique slot. No locks; one join at the end. **Correctness/Order** identical to sequential.
 
@@ -132,13 +120,13 @@ This report covers baseline measurements for the sequential versions of **Pearso
 
 <!-- Pearson parallel -->
 
-![Figure P2 — Pearson parallel (par)](./assets/pearson//par_dashboard.png)
+![Figure P2 — Pearson parallel (par)](./pearson/baseline_bench_result/par_dashboard.png)
 
 **Conclusion.** Pearson scales with problem size: at **n=128/256**, speedup saturates near **2×** even as threads rise, and efficiency drops below 25%, indicating overhead dominates short runs. At **n=512/1024**, scaling improves (best **3.05×** and **4.51×** at 32 threads), but efficiency still declines (to **9.5%** and **14.1%**) as synchronization and scheduling overheads grow. **CPU utilization** climbs toward ~800% at 32 threads (≈8 effective cores busy), while **Max RSS** stays essentially flat—parallelism doesn’t increase memory footprint. **task_clock_ms** rises with threads (e.g., +49% at n=512, +61% at n=1024 vs. 1-thread), meaning we “spend” more total CPU time to cut wall-time. For throughput-per-core, the sweet spot is around **8–16 threads** on larger sizes; pushing to 32 threads still reduces latency but with diminishing returns.
 
 ---
 
-### 5.2 Blur — design & results
+### 4.2 Blur — design & results
 
 **Partitioning:** split **rows** `[y0, y1)` per thread; join (barrier) between the horizontal and vertical passes; traversal order (x→y) identical to sequential. **Correctness** matches sequential output (verified).
 
@@ -190,10 +178,48 @@ This report covers baseline measurements for the sequential versions of **Pearso
 
 <!-- Blur parallel -->
 
-![Figure B2 — Blur parallel (par)](./assets/blur/par_dashboard.png)
+![Figure B2 — Blur parallel (par)](./blur/baseline_bench_result/par_dashboard.png)
 
 **Conclusion.** Blur scales nicely up to **8–16 threads**, then flattens as memory bandwidth and the pass-to-pass barrier dominate. Peak speedups at 32 threads are **im1 3.83×**, **im2 3.69×**, **im3 3.54×**, **im4 3.31×**; the gain from 16→32 threads is modest (≈ **im1 +10%**, **im2 +9%**, **im3 +5.7%**, **im4 +3.8%**). CPU utilization reaches ~**613% / 596% / 609% / 586%** (im1–im4) at 32 threads—roughly 6–8 effective cores saturated—while **Max RSS** stays flat. **task_clock_ms** rises versus 1 thread (≈ **+52% / +49% / +58% / +63%** by 32 threads), showing extra total CPU work due to synchronization and memory stalls. On this box, the throughput sweet spot is **8–16 threads**; 32 threads still trims wall-time but with sharply diminishing efficiency.
 
+---
+## 5. Optimization and Tuning (Sequential → Parallel → Optimized)
+### 5.1 Blur Optimizations:
+- **5.1.1 Optimization #1 — Hoist Gaussian weights**
+
+  **Rationale.** We removed redundant `exp()` work by computing Gaussian weights **once per thread** and reusing them in both horizontal and vertical passes.
+
+  **Code touchpoints.** `filters_opt.cpp`: `pass1_worker`, `pass2_worker` (weights array hoisted per thread).
+
+  **Impact (R=15).** Clear single-thread win, and parallel scaling holds. Below compares **baseline T1** (pre-opt, single thread) vs **O1** (post-opt, both passes):
+
+  | image | Before T1 (s) | After O1 (s) |   Δ% | Scaling 1→8 after O1 (×) |
+  | ----- | ------------: | -----------: | ---: | -----------------------: |
+  | im3   |        0.8440 |        0.480 | 43.1 |                     2.18 |
+  | im4   |        4.2675 |        2.546 | 40.3 |                     2.14 |
+
+  ![Figure B1 — Speedup vs threads (After-O1*)](./blur/1_Gaussian_res/par_dashboard.png)
+
+  **Takeaway.** hoisting Gaussian weights trims ~40–43% off the single-thread runtime.
+
+- **5.1.2 Optimization #2 — Row-major traversal (flip loop order in both passes)**
+
+  **Rationale.** Threads own row bands; scanning **rows → cols** (`for (y) for (x)`) matches row-major storage and keeps same-row neighbors hot. Math/borders unchanged.
+
+  **Code touchpoints.** `filters_opt.cpp`: in `pass1_worker` and `pass2_worker`, we swapped the loop headers.
+
+  **Impact (R=15) — O2 vs O1 (your CSVs).**
+
+  | image | threads | O1 elapsed (s) | O2 elapsed (s) | Δ% (O2 vs O1) |
+  | :---: | :-----: | -------------: | -------------: | ------------: |
+  |  im3  |    1    |          0.480 |          0.454 |     **-5.4%** |
+  |  im3  |    8    |          0.220 |          0.210 |     **-4.5%** |
+  |  im4  |    1    |          2.546 |          2.340 |     **-8.1%** |
+  |  im4  |    8    |          1.192 |          1.182 |     **-0.8%** |
+
+  ![Figure B4 — Speedup vs threads (O2 = O1 + row-major)](./blur/2_rowmajor/par_dashboard.png)
+
+  **Takeaway.** Row-major traversal gives a small but measurable win: ~**5–8%** at 1-thread (bigger cache benefit), ~**≤5%** at higher threads (closer to bandwidth limits). Correctness unchanged.
 ---
 
 ## 6. Conclusion

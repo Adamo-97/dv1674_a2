@@ -1,3 +1,108 @@
+# bench_blur.sh — Benchmark, profile, and plot results for sequential and parallel Gaussian-blur binaries.
+#
+# Overview
+# - Discovers project root and runs multiple benchmark passes over PPM images in data/.
+# - Measures runtime and memory with /usr/bin/time -v and collects perf stat counters.
+# - Writes per-run CSVs, computes outlier-trimmed aggregates and speedups, and (optionally) produces hotspots and plots.
+# - Saves artifacts in a timestamped bench_YYYYMMDD_HHMMSS directory.
+#
+# Usage
+#   ./scripts/bench_blur.sh
+#   RADIUS=25 THREADS="1 2 4 8" REPS=7 IMAGES="im1 im3" ./scripts/bench_blur.sh
+#   APP_DIR=/path/to/project PERF_EVENTS="task-clock,context-switches" ./scripts/bench_blur.sh
+#
+# Project/Path Resolution
+# - Preferred: APP_DIR points to the project root (must contain data/).
+# - Fallbacks: script_dir/../blur or current directory if it has data/.
+#
+# Required Inputs
+# - Images: PPM files in data/*.ppm. If IMAGES is unset, they are auto-discovered by basename (without .ppm).
+#   Fallback default set: im1 im2 im3 im4
+#
+# Binaries
+# - Sequential: BLUR_SEQ_BIN (default: ./blur)
+# - Parallel:   BLUR_PAR_BIN (default: ./blur_par)
+#
+# Key Environment Variables (defaults)
+# - RADIUS=15                  Blur radius passed to the binaries.
+# - THREADS="1 2 4 8 16 32"    Parallel thread counts to test.
+# - REPS=5                     Repetitions per configuration for timing.
+# - IMAGES=""                  Space-separated image basenames (no .ppm). If empty, auto-discovered.
+# - PERF_EVENTS="task-clock,context-switches,cpu-migrations,page-faults"
+#                              Safe perf events collected without sudo.
+# - TOPN=20                    Number of top hotspots parsed from callgrind annotate output.
+# - PROFILE_IMAGE=im3          Image used for callgrind profiling.
+# - PROFILE_THREADS=8          Thread count used for parallel callgrind profiling.
+# - APP_DIR                    Project root (auto-detected if not set).
+#
+# What It Does
+# 1) Build and tool checks
+#    - Runs `make -j` (best-effort).
+#    - Requires: /usr/bin/time, perf.
+#    - Optional: valgrind, callgrind_annotate (hotspots); python3 (aggregates/plots).
+#
+# 2) Run directories and logs
+#    - RUN_DIR: bench_<timestamp> under APP_DIR.
+#    - LOG_DIR: RUN_DIR/logs
+#    - Output images: data_o/
+#
+# 3) Per-run measurements
+#    - Sequential: For each image, run REPS times; only the last rep writes data_o/blur_<image>.ppm.
+#    - Parallel: For each thread count and image, run REPS times; output discarded (temp removed).
+#    - Uses:
+#      - /usr/bin/time -v for elapsed and max RSS.
+#      - perf stat for: task-clock, context-switches, cpu-migrations, page-faults.
+#      - Derived cpus_utilized = (task_clock_ms / (elapsed_s*1000)) * 100
+#
+# 4) CSV outputs (per-run)
+#    - Written to:
+#      - RUN_DIR/seq_runs.csv
+#      - RUN_DIR/par_runs.csv
+#    - Columns:
+#      program,image,radius,threads,rep,elapsed_s,max_rss_kb,task_clock_ms,cpus_utilized,ctx_switches,cpu_migrations,page_faults,tool
+#    - Raw tool logs in LOG_DIR/*.time and LOG_DIR/*.perf
+#
+# 5) Aggregates and speedups (requires python3)
+#    - Outlier trimming via IQR fence per (program,image,radius,threads) group.
+#    - Produces:
+#      - RUN_DIR/agg_seq.csv
+#      - RUN_DIR/agg_par.csv (includes speedup_vs_t1 relative to sequential threads=1 mean)
+#    - Reported per group: runs_total, runs_kept, elapsed_mean, elapsed_std, elapsed_ci95, rss_kb_mean, task_clock_ms_mean, cpus_utilized_mean
+#
+# 6) Hotspots (optional: valgrind + callgrind_annotate)
+#    - Profiles:
+#      - Sequential: BLUR_SEQ_BIN with PROFILE_IMAGE
+#      - Parallel:   BLUR_PAR_BIN with PROFILE_IMAGE and PROFILE_THREADS
+#    - Writes annotated text and a CSV with top functions by IR:
+#      - RUN_DIR/hotspots_callgrind_seq.csv
+#      - RUN_DIR/hotspots_callgrind_par.csv
+#
+# 7) Plotting (optional: python3)
+#    - Locates scripts/plot_blur.py from common locations and executes it with seq/par CSVs.
+#    - Output path/format depends on the plotting script.
+#
+# Safety and Behavior
+# - set -Eeuo pipefail for robust error handling.
+# - Only uses perf events that do not require sudo.
+# - Gracefully skips steps if optional tools are missing.
+# - Exits with error if project root cannot be found, or if required tools (/usr/bin/time, perf) are missing.
+#
+# Example Invocations
+# - Quick run on defaults:
+#     ./scripts/bench_blur.sh
+# - Change radius and threads:
+#     RADIUS=25 THREADS="1 2 4 8" ./scripts/bench_blur.sh
+# - Limit to specific images and reps:
+#     IMAGES="im2 im4" REPS=10 ./scripts/bench_blur.sh
+# - Custom binaries and events:
+#     BLUR_SEQ_BIN=./build/blur BLUR_PAR_BIN=./build/blur_par PERF_EVENTS="task-clock" ./scripts/bench_blur.sh
+#
+# Outputs Summary
+# - Sequential CSV:   RUN_DIR/seq_runs.csv
+# - Parallel CSV:     RUN_DIR/par_runs.csv
+# - Aggregates:       RUN_DIR/agg_seq.csv, RUN_DIR/agg_par.csv
+# - Hotspots:         RUN_DIR/hotspots_callgrind_seq.csv (and _par.csv if parallel binary exists)
+# - Gold images:      data_o/blur_<image>.ppm (written on the last sequential rep only)
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
@@ -239,7 +344,7 @@ else
   echo "[INFO] Skipping callgrind hotspots."
 fi
 
-# --- optional plotting (your existing plot_blur.py) ---
+# --- plotting (plot_blur.py) to get the graphs ---
 PLOT_SCRIPT=""
 for cand in "$SCRIPT_DIR/plot_blur.py" "$APP_DIR/scripts/plot_blur.py" "$(dirname "$APP_DIR")/scripts/plot_blur.py"; do
   [[ -f "$cand" ]] && { PLOT_SCRIPT="$cand"; break; }

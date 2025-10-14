@@ -1,0 +1,6 @@
+rank,function,Ir,Ir_percent
+1,PROGRAM TOTALS,8667053986,100.000
+2,filters_opt.cpp:Filter::pass1_worker(void*) [/home/adam/dv1674_a2/blur/blur_par],2444106320,28.200
+3,filters_opt.cpp:Filter::pass2_worker(void*) [/home/adam/dv1674_a2/blur/blur_par],2440842344,28.160
+4,=> ???:0x000000000010d960 (5,760,000x),1065656528,12.300
+5,events annotated,6910117812,79.730

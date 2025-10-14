@@ -1,4 +1,3 @@
-// filters_opt.cpp — threads-only parallel blur (no algorithmic optimizations)
 #include "filters.hpp"
 #include "matrix.hpp"
 #include "ppm.hpp"
@@ -8,20 +7,25 @@
 #include <cmath>
 
 namespace Filter {
-    namespace Gauss {
-        void get_weights(int n, double* weights_out) {
-            for (int i = 0; i <= n; ++i) {
-                double x = static_cast<double>(i) * max_x / n;
-                weights_out[i] = std::exp(-x * x * pi);
+
+    namespace Gauss
+    {
+        void get_weights(int n, double *weights_out)
+        {
+            for (auto i{0}; i <= n; i++)
+            {
+                double x{static_cast<double>(i) * max_x / n};
+                weights_out[i] = exp(-x * x * pi);
             }
         }
     }
+
 struct PassArgs {
     Matrix* dst;        // final image (read in pass1, written in pass2)
     Matrix* scratch;    // intermediate buffer (written in pass1, read in pass2)
     int radius;
     int W, H;
-    int y0, y1;         // [y0, y1)
+    int y0, y1;        
 };
 
 // ---- Pass 1: horizontal into scratch ----
@@ -31,11 +35,12 @@ static void* pass1_worker(void* vp) {
     Matrix& scratch = *a->scratch;
     const int R = a->radius, W = a->W;
 
-    for (int x = 0; x < W; ++x) {
-        for (int y = a->y0; y < a->y1; ++y) {
-            double w[Gauss::max_radius]{};              // SAME as sequential
-            Gauss::get_weights(R, w);                   // per-pixel weights, no hoisting
+    // O1: compute weights once per thread (not per pixel)
+    double w[Gauss::max_radius]{};
+    Gauss::get_weights(R, w);
 
+    for (int y = a->y0; y < a->y1; ++y) { // each thread handles a range of rows
+        for (int x = 0; x < W; ++x) { // O2: iterate x→y for better cache locality
             auto r = w[0] * dst.r(x, y);
             auto g = w[0] * dst.g(x, y);
             auto b = w[0] * dst.b(x, y);
@@ -74,11 +79,12 @@ static void* pass2_worker(void* vp) {
     Matrix& scratch = *a->scratch;
     const int R = a->radius, W = a->W, H = a->H;
 
-    for (int x = 0; x < W; ++x) {
-        for (int y = a->y0; y < a->y1; ++y) {
-            double w[Gauss::max_radius]{};              // SAME as sequential
-            Gauss::get_weights(R, w);                   // per-pixel weights, no hoisting
+    // O1: compute weights once per thread (not per pixel)
+    double w[Gauss::max_radius]{};
+    Gauss::get_weights(R, w);
 
+    for (int y = a->y0; y < a->y1; ++y) { // each thread handles a range of rows
+        for (int x = 0; x < W; ++x) { // O2: iterate x→y for better cache locality
             auto r = w[0] * scratch.r(x, y);
             auto g = w[0] * scratch.g(x, y);
             auto b = w[0] * scratch.b(x, y);
@@ -114,7 +120,7 @@ static void* pass2_worker(void* vp) {
 Matrix blur_parallel(Matrix m, const int radius, int num_threads) {
     if (num_threads < 1) num_threads = 1;
 
-    Matrix dst = m;                      // same semantics as sequential
+    Matrix dst = m;                      
     Matrix scratch { PPM::max_dimension };
 
     const int W = static_cast<int>(dst.get_x_size());
