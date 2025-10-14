@@ -1,0 +1,8 @@
+rank,function,Ir,Ir_percent
+1,PROGRAM TOTALS,17183890311,100.000
+2,filters.cpp:Filter::blur(Matrix, int) [/home/adam/dv1674_a2/blur/blur],9869036849,57.430
+3,./math/../sysdeps/ieee754/dbl-64/e_exp.c:__ieee754_exp_fma [/usr/lib/x86_64-linux-gnu/libm.so.6],1943040000,11.310
+4,=> ???:0x000000000010db10 (61,440,000x),3348480000,19.490
+5,double w[Gauss::max_radius]{};,1927684800,11.220
+6,double w[Gauss::max_radius]{};,1927684800,11.220
+7,events annotated,12045904612,70.100

@@ -1,0 +1,16 @@
+rank,function,Ir,Ir_percent
+1,PROGRAM TOTALS,53528626598,100.000
+2,vector.cpp:Vector::operator-(double) [/home/adam/dv1674_a2/pearson/pearson_par],11830004736,22.100
+3,vector.cpp:Vector::operator/(double) [/home/adam/dv1674_a2/pearson/pearson_par],11830004736,22.100
+4,vector.cpp:Vector::Vector(Vector const&) [/home/adam/dv1674_a2/pearson/pearson_par],8093985259,15.120
+5,vector.cpp:Vector::magnitude() const [/home/adam/dv1674_a2/pearson/pearson_par],6474918912,12.100
+6,vector.cpp:Vector::mean() const [/home/adam/dv1674_a2/pearson/pearson_par],5377084416,10.050
+7,for (auto i{0}; i < size; i++),11287911933,21.090
+8,data[i] = other.data[i];,7530340861,14.070
+9,=> /home/adam/dv1674_a2/pearson/vector.cpp:Vector::operator-(double) (523,776x),6035470848,11.280
+10,=> /home/adam/dv1674_a2/pearson/vector.cpp:Vector::operator-(double) (523,776x),6035470848,11.280
+11,=> /home/adam/dv1674_a2/pearson/vector.cpp:Vector::operator/(double) (523,776x),6035470848,11.280
+12,=> /home/adam/dv1674_a2/pearson/vector.cpp:Vector::operator/(double) (523,776x),6035470848,11.280
+13,=> analysis.cpp:Analysis::pearson(Vector, Vector) (523,776x),43779293184,81.790
+14,=> /home/adam/dv1674_a2/pearson/vector.cpp:Vector::Vector(Vector const&) (1,047,552x),5626411705,10.510
+15,events annotated,46900073969,87.620

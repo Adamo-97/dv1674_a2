@@ -6,20 +6,28 @@ LDLIBS   = -pthread
 
 all: blur blur_par
 
-blur: matrix ppm filters blur.cpp
-	$(CXX) $(CXXFLAGS) blur.cpp matrix.o ppm.o filters.o -o blur
+# ---- sequential (baseline) ----
+# uses the graders' filters.cpp unchanged
+blur: blur.cpp matrix.o ppm.o filters.o
+	$(CXX) $(CXXFLAGS) $^ -o $@
 
-blur_par: matrix ppm filters blur_par.cpp
-	$(CXX) $(CXXFLAGS) blur_par.cpp matrix.o ppm.o filters.o -o blur_par $(LDLIBS)
+# ---- parallel (optimized) ----
+# links filters_bar.o which contains the parallel implementation
+blur_par: blur_par.cpp matrix.o ppm.o filters_opt.o
+	$(CXX) $(CXXFLAGS) blur_par.cpp matrix.o ppm.o filters_opt.o -o blur_par $(LDLIBS)
 
-filters: matrix filters.hpp filters.cpp
-	$(CXX) $(CXXFLAGS) -c filters.cpp -o filters.o
+# objects
+matrix.o: matrix.hpp matrix.cpp
+	$(CXX) $(CXXFLAGS) -c matrix.cpp -o $@
 
-matrix: matrix.hpp matrix.cpp
-	$(CXX) $(CXXFLAGS) -c matrix.cpp -o matrix.o
+ppm.o: ppm.hpp ppm.cpp
+	$(CXX) $(CXXFLAGS) -c ppm.cpp -o $@
 
-ppm: ppm.hpp ppm.cpp
-	$(CXX) $(CXXFLAGS) -c ppm.cpp -o ppm.o
+filters.o: filters.hpp filters.cpp
+	$(CXX) $(CXXFLAGS) -c filters.cpp -o $@
+
+filters_opt.o: filters.hpp filters_opt.cpp
+	$(CXX) $(CXXFLAGS) -c filters_opt.cpp -o filters_opt.o
 
 clean:
-	rm -rf blur blur_par *.ppm *.o *.dSYM 2> /dev/null
+	rm -f blur blur_par *.o *.ppm

@@ -1,0 +1,8 @@
+rank,function,Ir,Ir_percent
+1,PROGRAM TOTALS,17053695544,100.000
+2,filters.cpp:Filter::pass2_worker(void*) [/home/adam/dv1674_a2/blur/blur_par],4902297888,28.750
+3,filters.cpp:Filter::pass1_worker(void*) [/home/adam/dv1674_a2/blur/blur_par],4847949096,28.430
+4,./math/../sysdeps/ieee754/dbl-64/e_exp.c:__ieee754_exp_fma [/usr/lib/x86_64-linux-gnu/libm.so.6],1943040000,11.390
+5,double w[Gauss::max_radius]{};,1927680000,11.300
+6,double w[Gauss::max_radius]{};,1927680000,11.300
+7,events annotated,11915652927,69.870

@@ -20,8 +20,8 @@ namespace Filter
     }
 
     Matrix blur(Matrix m, const int radius);
+    // Parallel version used in blur_par.cpp and filters_par.cpp
     Matrix blur_parallel(Matrix m, int radius, int num_threads);
-
 }
 
 #endif

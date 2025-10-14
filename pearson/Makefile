@@ -1,49 +1,31 @@
-# Compiler: prefer g++-13 if present, otherwise g++
-CXX := $(shell command -v g++-13 >/dev/null 2>&1 && echo g++-13 || echo g++)
-CC  ?= cc
+# Author: David Holmqvist <daae19@student.bth.se>
+CXX      = g++
+CXXFLAGS = -std=c++17 -g -O2 -Wall -Wunused
+LDLIBS   = -pthread
 
-CXXFLAGS ?= -std=c++17 -O2 -g -Wall -Wextra
-CFLAGS   ?= -O2 -g
+all: pearson pearson_par
 
-# Threading support
-CXXFLAGS += -pthread
-CFLAGS   += -pthread
-
-OBJS := vector.o dataset.o analysis.o
-
-.PHONY: all clean
-
-all: pearson verify pearson_par
-
-# ---- Binaries ----
-pearson: $(OBJS) pearson.o
+# ---- sequential (baseline, grader code untouched) ----
+pearson: pearson.cpp dataset.o vector.o analysis.o
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
-pearson_par: $(OBJS) pearson_par.o
-	$(CXX) $(CXXFLAGS) $^ -o $@
+# ---- parallel (threads-only; no algorithmic changes) ----
+# links analysis_opt.o which contains correlation_coefficients_parallel
+pearson_par: pearson_par.cpp dataset.o vector.o analysis.o analysis_opt.o
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
 
-verify: verify.c
-	$(CC) $(CFLAGS) $< -o $@
+# objects
+analysis.o: analysis.hpp analysis.cpp
+	$(CXX) $(CXXFLAGS) -c analysis.cpp -o $@
 
-# ---- Objects ----
-pearson.o: pearson.cpp analysis.hpp dataset.hpp vector.hpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+analysis_opt.o: analysis.hpp analysis_opt.cpp
+	$(CXX) $(CXXFLAGS) -c analysis_opt.cpp -o $@
 
-pearson_par.o: pearson_par.cpp analysis.hpp dataset.hpp vector.hpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+dataset.o: dataset.hpp dataset.cpp
+	$(CXX) $(CXXFLAGS) -c dataset.cpp -o $@
 
-vector.o: vector.cpp vector.hpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
-
-dataset.o: dataset.cpp dataset.hpp vector.hpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
-
-analysis.o: analysis.cpp analysis.hpp vector.hpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
-
-# Generic pattern rule (optional fallback)
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+vector.o: vector.hpp vector.cpp
+	$(CXX) $(CXXFLAGS) -c vector.cpp -o $@
 
 clean:
-	rm -f verify pearson pearson_par *.o *.dSYM
+	rm -f pearson pearson_par *.o
