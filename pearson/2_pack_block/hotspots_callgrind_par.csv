@@ -1,0 +1,7 @@
+rank,function,Ir,Ir_percent
+1,PROGRAM TOTALS,6133401356,100.000
+2,analysis_opt.cpp:PearsonOpt::corr_worker(void*) [/home/adam/dv1674_a2/pearson/pearson_par],2158495634,35.190
+3,./stdio-common/./stdio-common/printf_fp.c:__printf_fp_l [/usr/lib/x86_64-linux-gnu/libc.so.6],698667206,11.390
+4,=> ???:0x000000000010a460 (1,048,576x),1807400930,29.470
+5,=> ???:0x000000000010a630 (523,776x),1883255503,30.700
+6,events annotated,2251102908,36.700

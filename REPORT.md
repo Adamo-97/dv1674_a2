@@ -23,6 +23,11 @@ This report covers baseline measurements for the sequential versions of **Pearso
 - **Methodology:** 5 repetitions per point; aggregate with IQR trimming; report `elapsed_mean` and compute **speedup** as `T1 / Tt` (per size).  
 - **Correctness:** `verify.sh` (both apps) on representative sizes/images.
 
+### 2.1 Bottlenecks (baseline)
+
+**Pearson.** Work grows with the number of pairs O(n²); the per-pair cost is dominated by mean/variance recomputation and dot products. perf/Callgrind showed the inner dot/accumulation loops as top hotspots, with good L1 hit rates but heavy total instruction count.
+**Blur.** With a separable two-pass filter, each pixel does O(R) work per pass. The baseline is **memory-bandwidth bound** on larger images; perf showed high task-clock with modest IPC and frequent loads from neighboring rows/cols. These observations motivated (i) removing redundant math (Gaussian weights once), and (ii) traversing in row-major order to align accesses with layout.
+
 ---
 
 ## 3. Baseline Performance (Sequential, Unoptimized)
@@ -229,7 +234,7 @@ This report covers baseline measurements for the sequential versions of **Pearso
 
   **Code touchpoints.** `analysis_opt.cpp`: precompute `Z[i] = (x_i−mean(x_i)) / ‖x_i−mean(x_i)‖` once; in `corr_worker`, replace per-pair Pearson with `Z[i].dot(Z[j])` (+ clamp).
 
-  **Impact — O1 vs baseline (your CSVs).**
+  **Impact — O1 vs baseline (from ./pearson/1_normdot CSVs).**
 
   | size | threads | Baseline (s) | **O1** (s) | Δ% (O1 vs base) |   Speedup |
   | :--: | :-----: | -----------: | ---------: | --------------: | --------: |
@@ -250,21 +255,40 @@ This report covers baseline measurements for the sequential versions of **Pearso
 
   **Takeaway.** O1 preserves correctness and delivers **2–4.5×** at T1 and **~1.3–2.3×** at higher threads as sizes grow. For tiny sizes (128), per-thread overhead dominates beyond 4–8 threads, so the benefit flattens.
 
+- **5.2.2 Optimization #2 — Pack + blocked dot (contiguous, unrolled)**
+
+  **Rationale.** Keep O1’s math (normalize once), but make pairwise dots cheaper: pack all (Z_i) into one aligned `[n][m]` buffer and use a 4-way unrolled dot for better cache/SIMD.
+
+  **Code touchpoints.** `analysis_opt.cpp`: after building normalized vectors, pack into a 64B-aligned `Zbuf`; in the worker, replace `dot()` with the unrolled inner loop.
+
+  **Impact — O2 vs O1 (from ./pearson/2_pack_block/ CSVs).**
+
+  | size | threads | O1 elapsed (s) | O2 elapsed (s) | Δ% (O2 vs O1) |
+  | :--: | :-----: | -------------: | -------------: | ------------: |
+  |  512 |    1    |          0.150 |          0.120 |    **−20.0%** |
+  |  512 |    8    |          0.120 |          0.110 |     **−8.3%** |
+  | 1024 |    1    |          0.750 |          0.540 |    **−28.0%** |
+  | 1024 |    8    |          0.510 |          0.460 |     **−9.8%** |
+
+  ![Figure P2 — Speedup vs threads (O2 = O1 + pack+blocked)](./pearson/2_pack_block/par_dashboard.png)
+
+  **Takeaway.** Packing + blocked dots trims **~20–28%** at T1 for large sizes and **~5–10%** at higher threads; tiny sizes (128) are unchanged due to overheads.
 
 ---
 
 ## 6. Conclusion
 
-* **Baselines locked in.** Sequential Pearson and Blur (radius = 15) establish clean references; memory footprint follows input size, not thread count.
-* **Pearson scales with size.** Small cases (**128/256**) saturate ~**2×** despite more threads. Larger cases reach **3.05×** (n=512, 32 t) and **4.51×** (n=1024, 32 t). Efficiency falls as threads rise (e.g., **36.2% → 14.1%** from 8→32 t at n=1024).
-* **Blur is bandwidth-bound.** Row-sharded two-pass blur climbs well to **8–16 t** then flattens: best at 32 t is **3.83× / 3.69× / 3.54× / 3.31×** (im1→im4). Vertical (stride-Y) pass limits cache reuse and benefits least from extra threads.
-* **Cost of parallelism.** Total CPU time (**task_clock_ms**) rises with threads (≈**+49–63%** by 32 t across big runs), meaning we trade extra cycles for lower wall-time. **CPU util.** peaks near **~600–800%**, indicating ≈6–8 effective cores are the practical ceiling here.
-* **Practical sweet spot.** For throughput-per-core and stable efficiency, **8–16 threads** is the best trade-off for both workloads; 32 t still reduces latency but with sharply diminishing returns. **Max RSS** stays essentially flat across threads.
-* **Next steps (sequential first).**
+We established baselines, parallelized **Pearson** and **Blur** with pthreads, and applied two correctness-preserving optimizations per app. On the i9-12900K (WSL2), both programs speed up, but are ultimately limited by memory behavior and synchronization.
 
-  1. **SIMD vectorization** (Pearson dot products; Blur separable kernels) + light unrolling.
-  2. **Cache/NUMA care**: Pearson pair-blocking to improve reuse; Blur **vertical tiling** (small row blocks) + first-touch allocation + core pinning. Re-measure with the same 5× protocol to quantify gains without changing correctness.
+* **Pearson.** Sharding the upper triangle plus **O1 (pre-normalize once; per-pair dot)** and **O2 (packed, unrolled dot)** cut single-thread time by **50–78%** (up to **4.49×** at n=1024) and a further **20–28%** on large inputs. Parallel scaling improves with size: max **4.51×** at 32 threads for n=1024, with a practical sweet spot at **8–16 threads**. Task clock rises with threads (extra total CPU work), while RSS stays flat.
 
+* **Blur.** Row-band partitioning with a barrier between passes scales well to **8–16 threads**; at 32 threads gains flatten as bandwidth and the barrier dominate. Peaks: **3.83× / 3.69× / 3.54× / 3.31×** (im1–im4). **O1 (hoist Gaussian weights)** trims **~40–43%** at T1; **O2 (row-major traversal)** adds **~5–8%** at T1 and small wins at higher threads. CPU utilization climbs (≈6–8 effective cores busy), RSS flat, task clock increases due to sync/memory stalls.
+
+**Takeaways.** Both applications achieve substantial latency reductions while preserving correctness. For throughput-per-core, **8–16 threads** is the best trade-off on our host; 32 threads still lowers wall-time but with sharply diminishing efficiency. On the CodeGrade Xeon (8C/16T), we expect the same sweet spot.
+
+**Trade-offs.** Parallel runs increase total CPU work (**task_clock**) due to barriers (Blur) and scheduling/NUMA effects (Pearson), so latency drops while energy per job rises. Pearson’s upper-triangle sharding is embarrassingly parallel but shows diminishing returns from cache contention and per-thread startup at small n. Blur’s single barrier between passes becomes the pacing point beyond ~16 threads on this memory subsystem.
+
+**Future work.** OpenMP variants, wider SIMD (AVX2/AVX-512), tiling/blocking to reduce DRAM traffic, lightweight work-stealing for Pearson’s upper triangle, and line-buffered/tilized Blur to cut barrier pressure and improve cache reuse.
 
 ---
 
@@ -283,21 +307,121 @@ This report covers baseline measurements for the sequential versions of **Pearso
   `./scripts/bench_pearson.sh` → `bench_<STAMP>/{seq,par}_dashboard.png`, `agg_{seq,par}.csv`  
   `./scripts/bench_blur.sh` → `bench_<STAMP>/{seq,par}_dashboard.png`, `agg_{seq,par}.csv`
 
-### B. Submission Structure (Required)
-
-```
-group_XX/
-blur/
-Makefile
-blur
-blur_par
-...sources...
-pearson/
-Makefile
-pearson
-pearson_par
-...sources...
-```
-
-### C. Correctness
+### B. Correctness
 - `verify.sh` used on representative inputs for both applications; outputs match the sequential reference.
+
+### C. Submission layout
+
+```
+group_01/
+  .
+  ├── README.md
+  ├── REPORT.md
+  ├── blur
+  │   ├── 1_Gaussian_res
+  │   │   ├── agg_par.csv
+  │   │   ├── agg_seq.csv
+  │   │   ├── hotspots_callgrind_par.csv
+  │   │   ├── hotspots_callgrind_seq.csv
+  │   │   ├── par_dashboard.png
+  │   │   ├── par_runs.csv
+  │   │   ├── seq_dashboard.png
+  │   │   └── seq_runs.csv
+  │   ├── 2_rowmajor
+  │   │   ├── agg_par.csv
+  │   │   ├── agg_seq.csv
+  │   │   ├── hotspots_callgrind_par.csv
+  │   │   ├── hotspots_callgrind_seq.csv
+  │   │   ├── par_dashboard.png
+  │   │   ├── par_runs.csv
+  │   │   ├── seq_dashboard.png
+  │   │   └── seq_runs.csv
+  │   ├── Makefile
+  │   ├── baseline_bench_result
+  │   │   ├── agg_par.csv
+  │   │   ├── agg_seq.csv
+  │   │   ├── hotspots_callgrind_par.csv
+  │   │   ├── hotspots_callgrind_seq.csv
+  │   │   ├── par_dashboard.png
+  │   │   ├── par_runs.csv
+  │   │   ├── seq_dashboard.png
+  │   │   └── seq_runs.csv
+  │   ├── blur.cpp
+  │   ├── blur_par.cpp
+  │   ├── data
+  │   │   ├── im1.ppm
+  │   │   ├── im2.ppm
+  │   │   ├── im3.ppm
+  │   │   └── im4.ppm
+  │   ├── data_o
+  │   │   ├── im1_seq.ppm
+  │   │   ├── im2_seq.ppm
+  │   │   ├── im3_seq.ppm
+  │   │   └── im4_seq.ppm
+  │   ├── filters.cpp
+  │   ├── filters.hpp
+  │   ├── filters_opt.cpp
+  │   ├── matrix.cpp
+  │   ├── matrix.hpp
+  │   ├── ppm.cpp
+  │   ├── ppm.hpp
+  │   ├── scripts
+  │   │   ├── bench_blur.sh
+  │   │   └── plot_blur.py
+  │   └── verify.sh
+  └── pearson
+      ├── 1_normdot
+      │   ├── agg_par.csv
+      │   ├── agg_seq.csv
+      │   ├── hotspots_callgrind_par.csv
+      │   ├── hotspots_callgrind_seq.csv
+      │   ├── par_dashboard.png
+      │   ├── par_runs.csv
+      │   ├── seq_dashboard.png
+      │   └── seq_runs.csv
+      ├── 2_pack_block
+      │   ├── agg_par.csv
+      │   ├── agg_seq.csv
+      │   ├── hotspots_callgrind_par.csv
+      │   ├── hotspots_callgrind_seq.csv
+      │   ├── par_dashboard.png
+      │   ├── par_runs.csv
+      │   ├── seq_dashboard.png
+      │   └── seq_runs.csv
+      ├── Makefile
+      ├── analysis.cpp
+      ├── analysis.hpp
+      ├── analysis_opt.cpp
+      ├── baseline_bench_result
+      │   ├── agg_par.csv
+      │   ├── agg_seq.csv
+      │   ├── hotspots_callgrind_par.csv
+      │   ├── hotspots_callgrind_seq.csv
+      │   ├── par_dashboard.png
+      │   ├── par_runs.csv
+      │   ├── seq_dashboard.png
+      │   └── seq_runs.csv
+      ├── data
+      │   ├── 1024.data
+      │   ├── 128.data
+      │   ├── 256.data
+      │   └── 512.data
+      ├── data_o
+      │   ├── 1024_seq.data
+      │   ├── 128_seq.data
+      │   ├── 256_seq.data
+      │   └── 512_seq.data
+      ├── dataset.cpp
+      ├── dataset.hpp
+      ├── pearson.cpp
+      ├── pearson_par.cpp
+      ├── scripts
+      │   ├── bench_pearson.sh
+      │   └── plot_pearson.py
+      ├── vector.cpp
+      ├── vector.hpp
+      ├── verify.c
+      └── verify.sh
+
+15 directories, 93 files
+```
