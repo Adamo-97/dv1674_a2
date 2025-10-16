@@ -1,3 +1,10 @@
+/**
+* filters_opt.cpp - Parallel, two-pass (seperable) Gaussian blur with pthreads
+*   Threading: Rows are split across threads; each thread owns a [y0, y1] stripe.
+*   Cache locality: Iterate x->y; Compute Gaussian weights once per thread.
+*   Correctness: Passes verify.sh and identical to the sequential version. 
+**/
+
 #include "filters.hpp"
 #include "matrix.hpp"
 #include "ppm.hpp"
@@ -28,7 +35,11 @@ struct PassArgs {
     int y0, y1;        
 };
 
-// ---- Pass 1: horizontal into scratch ----
+/** ---- Pass 1: horizontal blur into scratch --------------------------------
+* For each pixel (x,y), average along X using precomputed weights.
+* Reads from dst (source), writes to scratch (horizontal result).
+*   --------------------------------------------------------------------------
+**/
 static void* pass1_worker(void* vp) {
     auto* a = static_cast<PassArgs*>(vp);
     Matrix& dst     = *a->dst;
@@ -72,7 +83,10 @@ static void* pass1_worker(void* vp) {
     return nullptr;
 }
 
-// ---- Pass 2: vertical from scratch into dst ----
+/** ---- Pass 2: vertical blur from scratch into dst --------------------------
+*        For each pixel (x,y), average along Y using same weights.
+*        Reads from scratch (horizontal result), writes final to dst.
+**/
 static void* pass2_worker(void* vp) {
     auto* a = static_cast<PassArgs*>(vp);
     Matrix& dst     = *a->dst;
@@ -116,7 +130,12 @@ static void* pass2_worker(void* vp) {
     return nullptr;
 }
 
-// Public API used by blur_par; identical math to sequential blur(), just threaded.
+/** Public entry used by blur_par: same math as sequential blur(), but threaded.
+* - m:       input image (copied into dst)
+* - radius:  blur radius (<= Gauss::max_radius - 1)
+* - threads: number of worker threads (clamped to [1..H])
+* Returns blurred image in dst
+*/
 Matrix blur_parallel(Matrix m, const int radius, int num_threads) {
     if (num_threads < 1) num_threads = 1;
 
