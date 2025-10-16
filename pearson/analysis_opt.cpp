@@ -1,3 +1,12 @@
+/** analysis_opt.cpp — Optimizations (brief)
+ - Normalize once: z = (x - mean)/||x-mean|| ⇒ Pearson = dot(z_i, z_j).
+ - Pack z rows into one 64B-aligned [n][m] buffer (better cache/SIMD).
+ - Dot product unrolled x4 for ILP/auto-vectorization.
+ - Compute only upper triangle; map (i,j)→index, lock-free writes.
+ - Static row striping across threads; cap threads to available rows.
+ - Clamp r to [-1,1]; fallback to STRICT_DOT or Zvec if packing fails.
+**/
+
 #include "analysis.hpp"
 #include <pthread.h>
 #include <algorithm>
