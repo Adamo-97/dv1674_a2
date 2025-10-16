@@ -1,4 +1,23 @@
-#!/usr/bin/env python3
+"""
+Bench dashboard generator for blur/blur_par.
+
+Reads aggregated CSVs from a bench_<timestamp>/ folder:
+  - agg_seq.csv  (sequential runs)
+  - agg_par.csv  (parallel runs)
+Optionally reads hotspot CSVs:
+  - hotspots_callgrind_seq.csv
+  - hotspots_callgrind_par.csv
+
+Outputs:
+  - seq_dashboard.png  (elapsed/RSS/CPU with a reference horizontal line)
+  - par_dashboard.png  (elapsed/RSS/CPU vs threads)
+Includes a small table of top hotspots (Ir %) on each dashboard.
+
+Usage:
+  python plot_bench.py [bench_folder]
+If no folder is given, uses the most recently modified bench_* in CWD or ../blur.
+"""
+
 import sys, glob, os
 from pathlib import Path
 import numpy as np
@@ -9,6 +28,7 @@ from matplotlib.ticker import MultipleLocator
 
 # ---------------- helpers ----------------
 def find_latest_bench_folder():
+    """Return newest bench_* folder from CWD or ../blur, or None if absent."""
     roots = [Path.cwd(), (Path(__file__).resolve().parent / ".." / "blur").resolve()]
     cands = []
     for r in roots:
@@ -19,6 +39,12 @@ def find_latest_bench_folder():
     return Path(latest)
 
 def load_shell_agg(folder: Path):
+        """
+    Load agg_seq.csv / agg_par.csv if present, tag rows, and add helper cols.
+
+    Returns:
+      (seq_df | None, par_df | None)
+    """
     seq_p = folder / "agg_seq.csv"
     par_p = folder / "agg_par.csv"
     if not seq_p.exists() and not par_p.exists():
@@ -36,12 +62,14 @@ def load_shell_agg(folder: Path):
     return seq, par
 
 def round_cols(df, cols, n=2):
+    """Round numeric columns in-place (coerce non-numeric to NaN)."""
     for c in cols:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").round(n)
     return df
 
 def _ensure_img_order(df):
+    """Stable, human-friendly image order: im1, im2, ... then any extras."""
     imgs = list(df["image"].dropna().unique())
     wanted = [f"im{i}" for i in range(1, 1 + len(imgs))]
     order = [x for x in wanted if x in imgs] + [x for x in imgs if x not in wanted]
@@ -114,6 +142,7 @@ def read_hotspots_csv(p: Path) -> pd.DataFrame:
 
 # --- hotspot table (2 columns: function, Ir_percent) ---
 def draw_hotspot_table(ax, df: pd.DataFrame, title: str, topn=12):
+    """Render a simple function vs Ir% table on the provided axes."""
     ax.axis("off")
     ax.set_title("Hotspots", fontsize=11)
     if df is None or df.empty:
@@ -135,7 +164,7 @@ def draw_hotspot_table(ax, df: pd.DataFrame, title: str, topn=12):
 
 # ---------------- nice axis helpers (generic for any Y) ----------------
 def _nice_step(span: float, target: int = 6) -> float:
-    """Choose a 'nice' major tick step so we get ~target ticks."""
+    """Choose a “nice” major tick step to get ≈target ticks across span."""
     if span <= 0:
         span = 1e-9
     base = 10 ** math.floor(math.log10(span / target))
@@ -146,7 +175,7 @@ def _nice_step(span: float, target: int = 6) -> float:
     return base * 10
 
 def _bounds_and_step(df: pd.DataFrame, col: str, *, floor0=False, pad_frac=0.05, target=6):
-    """Generic Y-axis bounds + step from a dataframe column."""
+    """Compute y-limits and major tick step for df[col], with optional floor at 0."""
     if col not in df.columns:
         return None
     vals = pd.to_numeric(df[col], errors="coerce").dropna().values
