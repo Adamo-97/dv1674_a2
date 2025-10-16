@@ -1,4 +1,34 @@
 #!/usr/bin/env bash
+# -----------------------------------------------------------------------------
+# pearson_bench.sh — Run Pearson (seq & par) benchmarks + perf/time + hotspots
+#
+# Usage:
+#   ./pearson_bench.sh                    # auto-detect latest project dir
+#   APP_DIR=/path/to/pearson ./pearson_bench.sh
+#
+# Requirements:
+#   - make, /usr/bin/time, perf
+#   - Optional: valgrind + callgrind_annotate (hotspots), python3 (aggregates/plots)
+#
+# Environment variables (override defaults):
+#   THREADS="1 2 4 8 16 32"   # thread counts for parallel runs
+#   REPS=5                    # repetitions per size/thread
+#   TOPN=20                   # top hotspot rows to keep
+#   PROFILE_SIZE=1024         # dataset size for callgrind profiling
+#   SIZES=""                  # subset sizes, e.g. "128 256"; empty = auto-discover data/*.data
+#   KEEP_PER_REP=1            # 0 = delete per-rep outputs (keep latest alias only)
+#   PEARSON_SEQ_BIN=./pearson
+#   PEARSON_PAR_BIN=./pearson_par
+#   PERF_EVENTS="task-clock,context-switches,cpu-migrations,page-faults"
+#
+# Outputs (under bench_YYYYmmdd_HHMMSS/):
+#   - seq_runs.csv, par_runs.csv            (raw per-run)
+#   - agg_seq.csv, agg_par.csv              (trimmed means, CI, speedups)
+#   - hotspots_callgrind_{seq,par}.csv      (if callgrind available)
+#   - logs/*.time, logs/*.perf              (raw logs)
+#   - data_o/*_latest.data                  (latest outputs per size/thread)
+# -----------------------------------------------------------------------------
+
 set -Eeuo pipefail
 
 # --- locate root ---
