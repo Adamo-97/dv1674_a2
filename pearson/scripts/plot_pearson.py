@@ -1,4 +1,31 @@
 #!/usr/bin/env python3
+"""
+plot_pearson.py — Build performance dashboards for Pearson (seq & par)
+
+What it does
+  • Reads aggregated CSVs from a bench_* folder:
+      - agg_seq.csv  (sequential)
+      - agg_par.csv  (parallel)
+  • (Optionally) reads hotspots:
+      - hotspots_callgrind_seq.csv
+      - hotspots_callgrind_par.csv
+  • Produces:
+      - seq_dashboard.png  (Elapsed/RSS/CPU + Hotspots)
+      - par_dashboard.png  (Elapsed/RSS/CPU vs threads + Hotspots)
+
+Usage
+  python plot_pearson.py <bench_folder>
+  # If omitted, auto-picks the newest bench_* in CWD or ../pearson
+
+Inputs (expected columns in agg_*.csv)
+  elapsed_mean, rss_kb_mean, <cpu column>, threads, size (or image)
+
+Notes
+  • X-axis is log2(threads). Sequential panel shows a single dot at 2^0 with a matching horizontal reference line.
+  • Y axes use dynamic bounds & “nice” tick steps.
+  • Hotspot table shows top functions by Ir%.
+"""
+
 import sys, glob, os
 from pathlib import Path
 import numpy as np
