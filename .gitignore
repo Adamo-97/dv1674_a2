@@ -57,3 +57,6 @@ Thumbs.db
 # ignore all generated outputs under any data_o directory
 **/data_o/**
 /pearson/verify
+REPORT.pdf
+shrink.tex
+.github/*
