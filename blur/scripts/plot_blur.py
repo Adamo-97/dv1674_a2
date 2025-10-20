@@ -39,7 +39,7 @@ def find_latest_bench_folder():
     return Path(latest)
 
 def load_shell_agg(folder: Path):
-        """
+    """
     Load agg_seq.csv / agg_par.csv if present, tag rows, and add helper cols.
 
     Returns:
