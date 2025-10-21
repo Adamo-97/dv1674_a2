@@ -7,7 +7,7 @@ LDLIBS   = -pthread
 all: blur blur_par
 
 # ---- sequential (baseline) ----
-# uses the graders' filters.cpp unchanged
+# uses the graders' filters.cpp 
 blur: blur.cpp matrix.o ppm.o filters.o
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
