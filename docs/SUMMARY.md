@@ -390,5 +390,3 @@ You now have **comprehensive, professional-grade documentation** covering:
 - Pearson: 16.37× (baseline → O1+O2 + 32 threads)
 
 All backed by **statistical analysis**, **profiling data**, and **reproducible benchmarks**.
-
-Good luck with your coursework! 🚀
