@@ -150,9 +150,16 @@ blur,im4,15,8,5,5,1.493,0.0161,0.014106,134995,5116.310,342.8
 
 **Speedup calculation (in `agg_par.csv` only):**
 
+The script adds two columns to `agg_par.csv`:
+
+- **`t1`:** Sequential baseline time (constant for each image/size, copied from `agg_seq.csv` where threads=1)
+- **`speedup_vs_t1`:** Speedup ratio calculated as:
+
+```python
+speedup_vs_t1 = t1 / elapsed_mean
 ```
-speedup_vs_t1 = elapsed_mean(seq, threads=1) / elapsed_mean(par, threads=T)
-```
+
+**Example:** For blur im4 at 8 threads, `t1=4.316s` (sequential baseline) and `elapsed_mean=1.493s` (parallel 8T) → `speedup_vs_t1 = 2.89×`
 
 ---
 
@@ -209,10 +216,23 @@ CPU util:   (5116.310 / 1493) × 100 = 342.8%
 ### Speedup vs Sequential
 
 ```
-speedup = T_seq / T_par(threads=T)
+speedup = T_seq(threads=1) / T_par(threads=T)
 ```
 
-**Where:** `T_seq` is the 1-thread sequential baseline elapsed time.
+**Where:**
+
+- `T_seq(threads=1)` is the **sequential baseline** elapsed time (from `seq_runs.csv`, threads=1)
+- `T_par(threads=T)` is the parallel elapsed time at T threads
+
+**Important:** Speedup is **always** calculated against the sequential 1-thread baseline, NOT against the parallel 1-thread result. This ensures we're measuring the benefit of the optimized implementation + parallelism combined.
+
+**Example (Blur, im4):**
+
+```
+T_seq(1 thread)  = 4.316s  (from blur binary)
+T_par(8 threads) = 1.493s  (from blur_par binary)
+Speedup          = 4.316 / 1.493 = 2.89×
+```
 
 **Interpretation:**
 
