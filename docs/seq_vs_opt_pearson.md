@@ -31,6 +31,339 @@ Compute pairwise Pearson correlation for `n` datasets, each with `m` samples:
 
 ---
 
+## Mathematical Foundation & Worked Example
+
+### Pearson Correlation Formula
+
+The Pearson correlation coefficient between two vectors **X** and **Y** is defined as:
+
+$$
+r = \frac{\sum_{i=1}^{m} (x_i - \bar{x})(y_i - \bar{y})}{\sqrt{\sum_{i=1}^{m} (x_i - \bar{x})^2} \cdot \sqrt{\sum_{i=1}^{m} (y_i - \bar{y})^2}}
+$$
+
+**Alternative formulation (used in optimized version):**
+
+$$
+r = \frac{\mathbf{X} - \bar{x}}{||\mathbf{X} - \bar{x}||} \cdot \frac{\mathbf{Y} - \bar{y}}{||\mathbf{Y} - \bar{y}||} = \mathbf{Z_X} \cdot \mathbf{Z_Y}
+$$
+
+Where **Z** is the normalized (z-score) vector.
+
+---
+
+### Concrete Example: n=3 datasets, m=4 samples
+
+**Input datasets:**
+
+```
+X0 = [2.0, 4.0, 6.0, 8.0]
+X1 = [1.0, 3.0, 5.0, 7.0]
+X2 = [8.0, 6.0, 4.0, 2.0]
+```
+
+**Goal:** Compute correlations for 3 pairs: (X0,X1), (X0,X2), (X1,X2)
+
+---
+
+### Step-by-Step Calculation: Pair (X0, X1)
+
+#### Step 1: Compute Means
+
+**Formula:** $\bar{x} = \frac{1}{m}\sum_{i=1}^{m} x_i$
+
+**Sequential code (`analysis.cpp:29`):**
+
+```cpp
+auto x_mean { vec1.mean() };  // Vector::mean() from vector.cpp:64-72
+auto y_mean { vec2.mean() };
+```
+
+**Parallel code (`analysis_opt.cpp:97`):**
+
+```cpp
+const double mu = series[i].mean();  // Same Vector::mean() method
+```
+
+**Calculation for X0:**
+
+```
+mean(X0) = (2.0 + 4.0 + 6.0 + 8.0) / 4 = 20.0 / 4 = 5.0
+```
+
+**Calculation for X1:**
+
+```
+mean(X1) = (1.0 + 3.0 + 5.0 + 7.0) / 4 = 16.0 / 4 = 4.0
+```
+
+**Output:** `x_mean = 5.0`, `y_mean = 4.0`
+
+---
+
+#### Step 2: Mean-Center the Vectors
+
+**Formula:** $x'_i = x_i - \bar{x}$
+
+**Sequential code (`analysis.cpp:32-33`):**
+
+```cpp
+auto x_mm { vec1 - x_mean };  // Vector::operator-(double) from vector.cpp:88-97
+auto y_mm { vec2 - y_mean };
+```
+
+**Parallel code (`analysis_opt.cpp:98`):**
+
+```cpp
+Vector xc = series[i] - mu;  // Same operator-() method
+```
+
+**Calculation for X0:**
+
+```
+X0_centered = [2.0-5.0, 4.0-5.0, 6.0-5.0, 8.0-5.0]
+            = [-3.0, -1.0, 1.0, 3.0]
+```
+
+**Calculation for X1:**
+
+```
+X1_centered = [1.0-4.0, 3.0-4.0, 5.0-4.0, 7.0-4.0]
+            = [-3.0, -1.0, 1.0, 3.0]
+```
+
+**Output:** `x_mm = [-3.0, -1.0, 1.0, 3.0]`, `y_mm = [-3.0, -1.0, 1.0, 3.0]`
+
+---
+
+#### Step 3: Compute Magnitudes (L2 Norm)
+
+**Formula:** $||x|| = \sqrt{\sum_{i=1}^{m} x_i^2}$
+
+**Sequential code (`analysis.cpp:35-36`):**
+
+```cpp
+auto x_mag { x_mm.magnitude() };  // Vector::magnitude() from vector.cpp:74-78
+auto y_mag { y_mm.magnitude() };  // Internally calls dot(itself)
+```
+
+**Parallel code (`analysis_opt.cpp:99`):**
+
+```cpp
+const double mag = xc.magnitude();  // Same magnitude() method
+```
+
+**Calculation for X0_centered:**
+
+```
+dot_product = (-3.0)² + (-1.0)² + (1.0)² + (3.0)²
+            = 9.0 + 1.0 + 1.0 + 9.0
+            = 20.0
+
+magnitude(X0_centered) = √20.0 = 4.472135954999579
+```
+
+**Calculation for X1_centered:**
+
+```
+magnitude(X1_centered) = √20.0 = 4.472135954999579  (same!)
+```
+
+**Output:** `x_mag = 4.472135954999579`, `y_mag = 4.472135954999579`
+
+---
+
+#### Step 4: Normalize (Divide by Magnitude)
+
+**Formula:** $z_i = \frac{x_i - \bar{x}}{||x - \bar{x}||}$
+
+**Sequential code (`analysis.cpp:38-39`):**
+
+```cpp
+auto x_mm_over_x_mag { x_mm / x_mag };  // Vector::operator/(double) from vector.cpp:80-89
+auto y_mm_over_y_mag { y_mm / y_mag };
+```
+
+**Parallel code (`analysis_opt.cpp:100`):**
+
+```cpp
+Vector zi = xc / mag;  // Same operator/() method
+```
+
+**Calculation for X0 (normalized):**
+
+```
+Z0 = [-3.0/4.472, -1.0/4.472, 1.0/4.472, 3.0/4.472]
+   = [-0.6708203932499369, -0.2236067977499790, 0.2236067977499790, 0.6708203932499369]
+```
+
+**Calculation for X1 (normalized):**
+
+```
+Z1 = [-0.6708203932499369, -0.2236067977499790, 0.2236067977499790, 0.6708203932499369]
+```
+
+**Output:** `x_normalized = Z0`, `y_normalized = Z1`
+
+---
+
+#### Step 5: Compute Dot Product (Correlation)
+
+**Formula:** $r = \sum_{i=1}^{m} z_{x_i} \cdot z_{y_i}$
+
+**Sequential code (`analysis.cpp:41`):**
+
+```cpp
+auto r { x_mm_over_x_mag.dot(y_mm_over_y_mag) };  // Vector::dot() from vector.cpp:99-108
+```
+
+**Parallel code - Fast path (`analysis_opt.cpp:68-72`):**
+
+```cpp
+const double* __restrict xi = Z + i * m;
+const double* __restrict xj = Z + j * m;
+r = dot_blocked_unroll4(xi, xj, m);  // Optimized dot product
+```
+
+**Parallel code - Strict path (`analysis_opt.cpp:66`):**
+
+```cpp
+r = (*a->Zvec)[i].dot((*a->Zvec)[j]);  // Same Vector::dot() as sequential
+```
+
+**Calculation:**
+
+```
+r = (-0.6708)×(-0.6708) + (-0.2236)×(-0.2236) + (0.2236)×(0.2236) + (0.6708)×(0.6708)
+  = 0.45 + 0.05 + 0.05 + 0.45
+  = 1.0
+```
+
+**Output:** `r = 1.0` (perfect positive correlation!)
+
+---
+
+#### Step 6: Clamp to Valid Range
+
+**Sequential code (`analysis.cpp:43`):**
+
+```cpp
+return std::max(std::min(r, 1.0), -1.0);
+```
+
+**Parallel code (`analysis_opt.cpp:69-70`):**
+
+```cpp
+if (r > 1.0) r = 1.0; else if (r < -1.0) r = -1.0;
+```
+
+**Calculation:**
+
+```
+r = 1.0  (already in valid range [-1.0, 1.0])
+```
+
+**Final output:** `correlation(X0, X1) = 1.0`
+
+---
+
+### Complete Example: All 3 Pairs
+
+Using the same process for the remaining pairs:
+
+**Pair (X0, X2):** X0=[2,4,6,8], X2=[8,6,4,2]
+
+```
+Step 1: mean(X0) = 5.0, mean(X2) = 5.0
+Step 2: X0_centered = [-3, -1, 1, 3], X2_centered = [3, 1, -1, -3]
+Step 3: magnitude(X0) = 4.472, magnitude(X2) = 4.472
+Step 4: Z0 = [-0.6708, -0.2236, 0.2236, 0.6708]
+        Z2 = [0.6708, 0.2236, -0.2236, -0.6708]
+Step 5: dot(Z0, Z2) = (-0.6708)×(0.6708) + (-0.2236)×(0.2236) +
+                      (0.2236)×(-0.2236) + (0.6708)×(-0.6708)
+                    = -0.45 + -0.05 + -0.05 + -0.45 = -1.0
+Step 6: correlation(X0, X2) = -1.0  (perfect negative correlation!)
+```
+
+**Pair (X1, X2):** X1=[1,3,5,7], X2=[8,6,4,2]
+
+```
+Step 1: mean(X1) = 4.0, mean(X2) = 5.0
+Step 2: X1_centered = [-3, -1, 1, 3], X2_centered = [3, 1, -1, -3]
+Step 3: magnitude(X1) = 4.472, magnitude(X2) = 4.472
+Step 4: Z1 = [-0.6708, -0.2236, 0.2236, 0.6708]
+        Z2 = [0.6708, 0.2236, -0.2236, -0.6708]
+Step 5: correlation(X1, X2) = -1.0
+```
+
+**Final output array:**
+
+```
+result = [1.0, -1.0, -1.0]
+         ↑     ↑      ↑
+      (0,1)  (0,2)  (1,2)
+```
+
+---
+
+### Key Difference: Sequential vs Parallel
+
+#### Sequential Approach (Redundant Work)
+
+```cpp
+// For pair (X0, X1):
+pearson(X0, X1):
+  normalize X0  ← Steps 1-4 for X0 (4 passes over m elements)
+  normalize X1  ← Steps 1-4 for X1 (4 passes over m elements)
+  dot product   ← Step 5
+
+// For pair (X0, X2):
+pearson(X0, X2):
+  normalize X0  ← REPEATED! (another 4 passes)
+  normalize X2  ← Steps 1-4 for X2
+  dot product
+
+// For pair (X1, X2):
+pearson(X1, X2):
+  normalize X1  ← REPEATED AGAIN!
+  normalize X2  ← REPEATED!
+  dot product
+
+Total normalization passes: 3 pairs × 2 vectors × 4 operations = 24 passes
+```
+
+#### Parallel Approach (Normalize-Once)
+
+```cpp
+// PRE-PROCESSING (sequential, done ONCE):
+for i in [0, 1, 2]:
+  normalize series[i]  ← Steps 1-4, stored in Zvec[i]
+
+// Result:
+Zvec[0] = [-0.6708, -0.2236, 0.2236, 0.6708]  (normalized X0)
+Zvec[1] = [-0.6708, -0.2236, 0.2236, 0.6708]  (normalized X1)
+Zvec[2] = [0.6708, 0.2236, -0.2236, -0.6708]  (normalized X2)
+
+// PARALLEL COMPUTATION (threads only compute dot products):
+Thread 0 handles row 0:
+  correlation(0,1) = dot(Zvec[0], Zvec[1]) = 1.0
+  correlation(0,2) = dot(Zvec[0], Zvec[2]) = -1.0
+
+Thread 1 handles row 1:
+  correlation(1,2) = dot(Zvec[1], Zvec[2]) = -1.0
+
+Total normalization passes: 3 vectors × 4 operations = 12 passes (50% reduction!)
+```
+
+**For n=1024 datasets:**
+
+- **Sequential:** 523,776 pairs × 2 vectors × 4 operations = **4,190,208 normalization passes**
+- **Parallel:** 1,024 vectors × 4 operations = **4,096 normalization passes**
+- **Reduction:** 1,023× fewer normalization operations!
+
+---
+
+---
+
 ## Sequential Implementation
 
 ### File: `analysis.cpp`
