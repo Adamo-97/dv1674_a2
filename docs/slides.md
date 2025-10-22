@@ -52,75 +52,102 @@ Compiler:   g++ 11.4.0 (-std=c++17 -O2)
 
 ---
 
-# SLIDE 3: Testing Methodology - Tools
+# SLIDE 3: Testing Methodology - Benchmark Scripts & Metrics
 
-## Measurement Tools
+## Automated Benchmarking Infrastructure
 
-### 1. `/usr/bin/time -v` - Wall-clock & Memory
-
-```bash
-/usr/bin/time -v ./blur_par 15 data/im4.ppm out.ppm 8
-```
-
-**Metrics:**
-
-- Elapsed time (user experience)
-- Max RSS (peak memory usage)
-
-### 2. `perf stat` - CPU Performance Counters
+### Benchmark Scripts
 
 ```bash
-perf stat -e task-clock,context-switches,cpu-migrations,page-faults \
-  ./pearson_par data/1024.data out.data 16
+blur/scripts/bench_blur.sh       # Blur benchmarking pipeline
+pearson/scripts/bench_pearson.sh # Pearson benchmarking pipeline
 ```
 
-**Metrics:**
-
-- Task-clock (CPU time consumed)
-- CPU utilization = (task-clock / elapsed) × 100%
-- Context switches (contention indicator)
-
-### 3. `valgrind --tool=callgrind` - Hotspot Profiling
+**Configuration:**
 
 ```bash
-valgrind --tool=callgrind --callgrind-out-file=out ./blur 15 data/im3.ppm out.ppm
+THREADS="1 2 4 8 16 32"          # Thread counts tested
+REPS=5                            # Repetitions (IQR outlier removal)
+BLUR_RADIUS=15                   # Fixed radius
+PEARSON_SIZES="128 256 512 1024" # Dataset sizes
 ```
 
-**Metrics:**
+### Measurement Tools & Metrics
 
-- Instruction counts per function
-- Validates optimization impact
+**1. `/usr/bin/time -v` - Resource Usage**
+
+- **Elapsed time:** Wall-clock duration (user experience)
+- **Max RSS:** Peak memory usage (detect leaks/overhead)
+- **Why:** No instrumentation overhead, OS-level accuracy
+
+**2. `perf stat` - CPU Performance Counters**
+
+```bash
+PERF_EVENTS="task-clock,context-switches,cpu-migrations,page-faults"
+```
+
+- **Task-clock:** Total CPU time consumed
+- **CPU utilization:** `(task-clock / elapsed) × 100%` → diagnose bottlenecks
+- **Context switches:** Detect contention (high = over-threading)
+- **Page faults:** Identify memory pressure
+- **Why:** Reveals memory-bound vs compute-bound behavior
+
+**3. `valgrind --tool=callgrind` - Hotspot Profiling**
+
+- **Instruction counts:** Per-function execution cost
+- **Why:** Validates optimization impact (e.g., weights: 48.3% → 7.1%)
 
 ---
 
-# SLIDE 4: Testing Methodology - Validation
+# SLIDE 4: Testing Methodology - Correctness Validation
 
-## Correctness Verification
+## Verification Strategy: Validate After Every Optimization
 
-### Blur (Bit-Exact Comparison)
-
-```bash
-./blur 15 data/im3.ppm data_o/im3_seq.ppm
-./blur_par 15 data/im3.ppm data_o/im3_par.ppm 8
-cmp -s data_o/im3_seq.ppm data_o/im3_par.ppm  # Binary match
-```
-
-### Pearson (Floating-Point Tolerance)
+### Automated Verification Scripts
 
 ```bash
-./pearson data/1024.data data_o/1024_seq.data
-./pearson_par data/1024.data data_o/1024_par.data 16
-./verify data_o/1024_seq.data data_o/1024_par.data  # Max diff < 1e-6
+blur/verify.sh    # Compares sequential vs parallel outputs
+pearson/verify.sh # Validates correlation coefficients
 ```
 
-## Benchmark Configuration
+**Workflow:**
+
+1. Make code change (optimization or parallelization)
+2. Rebuild: `make clean && make -j`
+3. **Run verification script** ✅
+4. Only proceed if verification passes
+
+### Blur: Bit-Exact Comparison
 
 ```bash
-THREADS="1 2 4 8 16 32"  # Thread counts tested
-REPS=5                    # Repetitions per config (IQR outlier removal)
-BLUR_RADIUS=15           # Fixed blur radius
-PEARSON_SIZES="128 256 512 1024"  # Dataset sizes
+# blur/verify.sh - Tests all images × all thread counts
+for img in im1 im2 im3 im4; do
+  for threads in 1 2 4 8 16 32; do
+    ./blur 15 data/${img}.ppm data_o/${img}_seq.ppm
+    ./blur_par 15 data/${img}.ppm data_o/${img}_par.ppm $threads
+    cmp -s data_o/${img}_seq.ppm data_o/${img}_par.ppm || echo "FAIL"
+  done
+done
 ```
+
+**Requirement:** Byte-for-byte identical output (unsigned char pixels)
+
+### Pearson: Floating-Point Tolerance
+
+```bash
+# pearson/verify.sh - Tests all sizes × all thread counts
+for size in 128 256 512 1024; do
+  for threads in 1 2 4 8 16 32; do
+    ./pearson data/${size}.data data_o/${size}_seq.data
+    ./pearson_par data/${size}.data data_o/${size}_par.data $threads
+    ./verify data_o/${size}_seq.data data_o/${size}_par.data  # < 1e-6
+  done
+done
+```
+
+**Requirement:** Max absolute difference < 1e-6 (FP rounding tolerance)
+
+**Result:** ✅ All 48 configurations passed (24 blur + 24 pearson)
 
 ---
 
